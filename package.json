@@ -38,6 +38,8 @@
 	},
 	"private": true,
 	"scripts": {
+		"predev": "wrangler types",
+		"prebuild": "wrangler types",
 		"build": "tsc -b && vite build",
 		"cf-typegen": "wrangler types",
 		"check": "tsc && vite build && wrangler deploy --dry-run",

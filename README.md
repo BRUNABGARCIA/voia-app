@@ -115,6 +115,10 @@ npx wrangler d1 execute voia-db --local --file=./seeds/dev_seed.sql
 | `npm run cf-typegen` | Regera `worker-configuration.d.ts` a partir de `wrangler.json` |
 | `npm run deploy` | Deploy no Cloudflare Workers (requer `wrangler login` e `database_id` real) |
 
+`worker-configuration.d.ts` é gerado automaticamente (via `predev`/`prebuild`,
+que rodam `wrangler types`) e não é versionado — ele reflete os bindings de
+`wrangler.json` (ex.: `Env.DB`) e ficaria desatualizado se fosse commitado.
+
 ## Health check
 
 `GET /api/health` confirma, sem expor dados sensíveis:
