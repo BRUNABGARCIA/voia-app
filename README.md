@@ -58,21 +58,13 @@ migration), não o dashboard definitivo.
 
 ## Cloudflare D1
 
-O binding `DB` em `wrangler.json` aponta para um banco D1 chamado `voia-db`.
-
-**O `database_id` ainda não está preenchido** (`REPLACE_WITH_D1_DATABASE_ID`)
-porque o banco real ainda não foi criado nesta conta Cloudflare. Para
-provisionar:
-
-```bash
-npx wrangler d1 create voia-db
-```
-
-Copie o `database_id` retornado para `wrangler.json` (`d1_databases[0].database_id`).
-Só depois disso `npm run deploy` e comandos com `--remote` funcionam.
+O binding `DB` em `wrangler.json` aponta para o banco D1 `voia-db`, já
+provisionado nesta conta Cloudflare, com `database_id` configurado em
+`wrangler.json` (`d1_databases[0].database_id`). A migration
+`0001_init_base.sql` já foi aplicada com sucesso no banco remoto.
 
 Para desenvolvimento **local**, o Wrangler cria automaticamente um banco
-SQLite local (não precisa do `database_id` real) ao aplicar as migrations:
+SQLite local separado (não usa o banco remoto) ao aplicar as migrations:
 
 ```bash
 npx wrangler d1 migrations apply voia-db --local
@@ -85,12 +77,13 @@ Migrations ficam em `migrations/`, aplicadas via nome sequencial:
 - `0001_init_base.sql` — tabelas `usuarios`, `organizacoes`, `projetos`
   (com foreign keys e índices) e o usuário administrativo de
   desenvolvimento `admin@voia.local` (sem senha/autenticação nesta etapa).
+  **Já aplicada no banco remoto `voia-db`.**
 
 ```bash
 # Local
 npx wrangler d1 migrations apply voia-db --local
 
-# Remoto (produção/preview) — requer database_id real e `wrangler login`
+# Remoto (produção) — requer `wrangler login`
 npx wrangler d1 migrations apply voia-db --remote
 ```
 
