@@ -2,11 +2,13 @@
 // Gera o hash PBKDF2 de uma senha, para ativar um usuário em desenvolvimento
 // (ex.: admin@voia.local, que nasce sem senha na migration 0002_auth.sql).
 //
-// A senha é digitada de forma interativa e oculta (nunca como argumento de
-// linha de comando, para não ficar registrada no histórico do shell).
-// Nada aqui é enviado pela rede nem gravado em arquivo — a saída é só o
-// comando SQL, para você executar manualmente contra o D1 local (ou remoto,
-// com autorização) e depois descartar do terminal.
+// A senha é digitada de forma interativa (nunca como argumento de linha de
+// comando, para não ficar registrada no histórico do shell). Os caracteres
+// ficam VISÍVEIS no terminal ao digitar — intencional: este é um script
+// administrativo rodado manualmente no seu computador, não a tela de login
+// do VOIA APP. Nada aqui é enviado pela rede nem gravado em arquivo — a
+// saída é só o comando SQL, para você executar manualmente contra o D1
+// local (ou remoto, com autorização) e depois descartar do terminal.
 //
 // IMPORTANTE: os parâmetros abaixo (algoritmo, iterações, tamanhos) devem
 // ficar em sincronia com src/worker/auth/hash.ts — são a mesma implementação
@@ -21,15 +23,6 @@ const ALGORITHM = "pbkdf2-sha256";
 const ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
-
-// Códigos de controle do terminal identificados por charCode, para não
-// depender de bytes de controle literais no arquivo-fonte (frágeis ao
-// serem transmitidos/versionados).
-const KEY_ENTER = "\n";
-const KEY_RETURN = "\r";
-const KEY_EOF = String.fromCharCode(4); // Ctrl-D
-const KEY_INTERRUPT = String.fromCharCode(3); // Ctrl-C
-const KEY_BACKSPACE = String.fromCharCode(127); // Backspace/Delete
 
 async function hashPassword(password) {
 	const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
@@ -50,85 +43,45 @@ async function hashPassword(password) {
 	].join("$");
 }
 
-function ask(promptText) {
-	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-	return new Promise((resolve) =>
-		rl.question(promptText, (answer) => {
-			rl.close();
-			resolve(answer.trim());
-		}),
-	);
-}
-
-function askHidden(promptText) {
-	if (!process.stdin.isTTY) {
-		throw new Error("Este script precisa rodar num terminal interativo (stdin não é um TTY).");
-	}
-
-	return new Promise((resolve, reject) => {
-		process.stdout.write(promptText);
-		const stdin = process.stdin;
-		stdin.resume();
-		stdin.setRawMode(true);
-		stdin.setEncoding("utf8");
-
-		let input = "";
-
-		const onData = (char) => {
-			if (char === KEY_ENTER || char === KEY_RETURN || char === KEY_EOF) {
-				stdin.setRawMode(false);
-				stdin.pause();
-				stdin.removeListener("data", onData);
-				process.stdout.write("\n");
-				resolve(input);
-				return;
-			}
-
-			if (char === KEY_INTERRUPT) {
-				stdin.setRawMode(false);
-				stdin.pause();
-				process.stdout.write("\n");
-				reject(new Error("Cancelado."));
-				return;
-			}
-
-			if (char === KEY_BACKSPACE) {
-				input = input.slice(0, -1);
-				return;
-			}
-
-			input += char;
-		};
-
-		stdin.on("data", onData);
-	});
+function ask(rl, promptText) {
+	return new Promise((resolve) => rl.question(promptText, (answer) => resolve(answer.trim())));
 }
 
 async function main() {
-	const email = await ask("E-mail do usuário (ex.: admin@voia.local): ");
-	if (!email) {
-		throw new Error("E-mail é obrigatório.");
+	// Uma única interface reaproveitada nas três perguntas: criar uma nova
+	// a cada pergunta perde entrada em stdin não-interativo (pipe/arquivo),
+	// já que a interface anterior pode consumir dados além da linha que
+	// respondeu antes de ser fechada.
+	const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+	try {
+		const email = await ask(rl, "E-mail do usuário (ex.: admin@voia.local): ");
+		if (!email) {
+			throw new Error("E-mail é obrigatório.");
+		}
+
+		const senha = await ask(rl, "Nova senha (os caracteres ficam visíveis): ");
+		const confirmacao = await ask(rl, "Confirme a senha: ");
+
+		if (senha.length < 8) {
+			throw new Error("A senha precisa ter pelo menos 8 caracteres.");
+		}
+		if (senha !== confirmacao) {
+			throw new Error("As senhas não conferem.");
+		}
+
+		const hash = await hashPassword(senha);
+		const sql = `UPDATE usuarios SET senha_hash = '${hash}' WHERE email = '${email.replace(/'/g, "''")}';`;
+
+		console.log("\nComando SQL gerado (não contém a senha em texto puro):\n");
+		console.log(sql);
+		console.log("\nExecute manualmente, por exemplo:\n");
+		console.log(`  npx wrangler d1 execute voia-db --local --command "${sql.replace(/"/g, '\\"')}"`);
+		console.log("\nPara aplicar no banco remoto, use --remote apenas com autorização explícita.");
+		console.log("Não cole este comando em nenhum arquivo versionado.");
+	} finally {
+		rl.close();
 	}
-
-	const senha = await askHidden("Nova senha (não será exibida): ");
-	const confirmacao = await askHidden("Confirme a senha: ");
-
-	if (senha.length < 8) {
-		throw new Error("A senha precisa ter pelo menos 8 caracteres.");
-	}
-	if (senha !== confirmacao) {
-		throw new Error("As senhas não conferem.");
-	}
-
-	const hash = await hashPassword(senha);
-	const sql = `UPDATE usuarios SET senha_hash = '${hash}' WHERE email = '${email.replace(/'/g, "''")}';`;
-
-	console.log("\nComando SQL gerado (não contém a senha em texto puro):\n");
-	console.log(sql);
-	console.log("\nExecute manualmente, por exemplo:\n");
-	console.log(`  npx wrangler d1 execute voia-db --local --command "${sql.replace(/"/g, '\\"')}"`);
-	console.log("\nPara aplicar no banco remoto, use --remote apenas com autorização explícita.");
-	console.log("Não cole este comando em nenhum arquivo versionado.");
 }
 
 main().catch((err) => {
