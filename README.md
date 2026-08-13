@@ -4,13 +4,15 @@ VOIA é uma plataforma para gestão de projetos de engenharia, conectando
 organizações/clientes (PF ou PJ), projetos e as equipes que os executam.
 
 Este repositório já passou pela **Etapa A — Fundação** (banco de dados,
-identidade visual, estrutura de pastas, health check) e está na
-**Etapa B — Autenticação, usuários e estrutura base** (sessão server-side,
-login, App Shell), validada localmente.
+identidade visual, estrutura de pastas, health check) e pela **Etapa B —
+Autenticação** (sessão server-side, login, App Shell), e está na
+**Etapa C — Usuários, equipe e acessos** (tela administrativa para gerenciar
+a equipe), validada localmente.
 
 **Ainda não implementado** (propositalmente fora de escopo): CRM completo,
 financeiro, Cloudflare R2, documentos, tarefas, etapas de projeto, IA VOIA /
-VOIA Brain e dashboards definitivos.
+VOIA Brain, dashboards definitivos e permissões granulares por módulo
+(controle de acesso hoje é só por perfil).
 
 ## Stack
 
@@ -32,15 +34,16 @@ seeds/                  Dados fictícios para desenvolvimento (nunca produção)
 src/
   react-app/
     contexts/           AuthContext (estado do usuário autenticado)
-    components/         RequireAuth (guarda de rota)
-    layouts/AppShell.tsx  Sidebar + header + área de conteúdo (pós-login)
-    pages/              Telas: Login, Home (autenticada), InfraCheck (/status)
+    components/         RequireAuth, RequireAdmin (guardas de rota), EditarUsuarioModal
+    layouts/AppShell.tsx  Sidebar (preta, identidade VOIA) + header + conteúdo
+    pages/              Telas: Login, Home, EquipeAcessos, InfraCheck (/status)
     styles/theme.css    Tokens de identidade visual (cores, tipografia, raios, sombras)
     App.tsx             Rotas
     main.tsx            Bootstrap do React
   worker/
     auth/               Hash de senha, sessão, middleware e rotas de autenticação
-    index.ts            API (Hono) rodando no Worker: /api/health, /api/auth/*
+    usuarios/            Rotas de gestão de equipe (/api/usuarios), só administrador
+    index.ts            API (Hono) rodando no Worker: /api/health, /api/auth/*, /api/usuarios
 wrangler.json           Configuração do Worker/D1 na Cloudflare
 ```
 
@@ -59,7 +62,8 @@ npm run dev
 ```
 
 Aplicação em [http://localhost:5173](http://localhost:5173). `/` exige login
-(App Shell com uma home temporária), `/login` é a tela de entrada, e
+(App Shell com uma home temporária), `/login` é a tela de entrada,
+`/configuracoes/equipe` é a gestão de equipe (só para `administrador`), e
 `/status` continua sendo a verificação de infraestrutura (frontend,
 Worker/API, D1, migration) da Etapa A, pública.
 
@@ -86,8 +90,15 @@ Migrations ficam em `migrations/`, aplicadas via nome sequencial:
   desenvolvimento `admin@voia.local`. **Já aplicada no banco remoto
   `voia-db`. Imutável — não deve ser alterada.**
 - `0002_auth.sql` — adiciona `usuarios.senha_hash` (nullable) e a tabela
-  `sessoes` (sessão server-side). **Aplicada apenas no banco local** até
-  aqui; a aplicação no D1 remoto depende de autorização explícita.
+  `sessoes` (sessão server-side). **Já aplicada no banco remoto `voia-db`.
+  Imutável — não deve ser alterada.**
+- `0003_equipe_permissoes.sql` — amplia (não substitui) o `CHECK` de
+  `usuarios.perfil` para incluir `visualizador` (mantendo os valores já
+  existentes) e adiciona `usuarios.ultimo_login_em`. Como SQLite não
+  altera `CHECK` in-place, é feita via rebuild de tabela (mesmos IDs
+  preservados, sem tocar em `sessoes`/`projetos`). **Aplicada apenas no
+  banco local** até aqui; a aplicação no D1 remoto depende de autorização
+  explícita.
 
 ```bash
 # Local
@@ -117,8 +128,9 @@ Sessão server-side com cookie `httpOnly` (não JWT). Endpoints:
   cookie no navegador.
 - `GET /api/auth/me` — usuário autenticado atual, ou 401.
 
-Senhas usam PBKDF2-HMAC-SHA256 (Web Crypto nativa do Worker, 210.000
-iterações, salt individual por usuário) — nunca texto puro, nunca
+Senhas usam PBKDF2-HMAC-SHA256 (Web Crypto nativa do Worker, 100.000
+iterações — limite do runtime do Cloudflare Workers —, salt individual
+por usuário) — nunca texto puro, nunca
 retornadas em nenhuma resposta. Sessão expira em 7 dias; o token só é
 guardado com hash no D1 (nunca em texto puro).
 
@@ -147,6 +159,25 @@ npx wrangler d1 execute voia-db --local --command "UPDATE usuarios SET senha_has
 
 Aplicar no banco remoto (`--remote`) só com autorização explícita.
 
+## Equipe e Acessos
+
+Página em `/configuracoes/equipe`, restrita a `perfil = 'administrador'`.
+Lista a equipe (nome, e-mail, perfil, status, último acesso) e permite
+editar nome/e-mail/perfil/status através de `PATCH /api/usuarios/:id`.
+Controle de acesso é só por **perfil** nesta etapa (`administrador`,
+`gestor`, `colaborador`, `visualizador`) — sem tabela de permissões por
+módulo, para não construir estrutura que ainda não tem módulo real para
+proteger.
+
+- `GET /api/usuarios` e `PATCH /api/usuarios/:id` exigem sessão válida
+  **e** `perfil = 'administrador'` (`requireRole("administrador")`, já
+  existente desde a Etapa B). `senha_hash` nunca é retornado.
+- Um administrador não consegue desativar a própria conta nem trocar o
+  próprio perfil para outro — validado no backend, não só escondido no
+  frontend.
+- Não há criação de usuário pela interface ainda (só edição de quem já
+  existe) — fica para uma próxima etapa.
+
 ## Comandos principais
 
 | Comando | Descrição |
@@ -173,10 +204,12 @@ que rodam `wrangler types`) e não é versionado — ele reflete os bindings de
 ## Estágio atual
 
 - **Etapa A (fundação)**: concluída e em produção.
-- **Etapa B (autenticação, usuários, estrutura base)**: implementada e
-  validada **localmente** (login, sessão, logout, App Shell, middleware
-  de autorização). Migration `0002_auth.sql` aplicada só no D1 local;
-  deploy e migration remota pendentes de autorização.
+- **Etapa B (autenticação)**: concluída e em produção (login, sessão,
+  logout, PBKDF2 a 100.000 iterações).
+- **Etapa C (usuários, equipe e acessos)**: implementada e validada
+  **localmente** (listar/editar equipe, autoproteção do admin, sidebar
+  com identidade VOIA). Migration `0003_equipe_permissoes.sql` aplicada
+  só no D1 local; deploy e migration remota pendentes de autorização.
 
-CRM, financeiro, R2, documentos, tarefas, etapas, IA VOIA e dashboards
-definitivos ficam para as próximas etapas.
+CRM, financeiro, R2, documentos, tarefas, etapas, IA VOIA, dashboards
+definitivos e permissões por módulo ficam para as próximas etapas.
