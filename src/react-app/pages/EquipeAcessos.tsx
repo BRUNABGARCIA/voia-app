@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import EditarUsuarioModal from "../components/EditarUsuarioModal";
+import NovoUsuarioModal from "../components/NovoUsuarioModal";
 
 export interface Usuario {
 	id: number;
@@ -31,6 +32,8 @@ export default function EquipeAcessos() {
 	const [usuarios, setUsuarios] = useState<Usuario[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [editando, setEditando] = useState<Usuario | null>(null);
+	const [criando, setCriando] = useState(false);
+	const [sucesso, setSucesso] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -52,9 +55,23 @@ export default function EquipeAcessos() {
 		};
 	}, []);
 
+	useEffect(() => {
+		if (!sucesso) return;
+		const timer = setTimeout(() => setSucesso(null), 4000);
+		return () => clearTimeout(timer);
+	}, [sucesso]);
+
 	function handleSaved(atualizado: Usuario) {
 		setUsuarios((atual) => atual?.map((u) => (u.id === atualizado.id ? atualizado : u)) ?? atual);
 		setEditando(null);
+	}
+
+	function handleCreated(criado: Usuario) {
+		setUsuarios((atual) =>
+			[...(atual ?? []), criado].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+		);
+		setCriando(false);
+		setSucesso(`Usuário "${criado.nome}" criado com sucesso.`);
 	}
 
 	return (
@@ -64,8 +81,18 @@ export default function EquipeAcessos() {
 					<h1 className="font-display text-2xl font-light text-voia-neutral-900">Equipe e Acessos</h1>
 					<p className="mt-1 text-sm text-voia-neutral-700">Gerencie quem pode acessar e operar o VOIA.</p>
 				</div>
+				<button
+					type="button"
+					onClick={() => setCriando(true)}
+					className="rounded-control bg-voia-gold-500 px-4 py-2 text-sm font-medium text-voia-green-950 transition-colors hover:bg-voia-gold-400"
+				>
+					+ Novo usuário
+				</button>
 			</div>
 
+			{sucesso && (
+				<p className="mt-4 rounded-control bg-voia-success/15 px-3 py-2 text-sm text-voia-success">{sucesso}</p>
+			)}
 			{error && <p className="mt-6 text-sm text-voia-danger">{error}</p>}
 
 			{!error && !usuarios && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
@@ -120,6 +147,8 @@ export default function EquipeAcessos() {
 			{editando && (
 				<EditarUsuarioModal usuario={editando} onClose={() => setEditando(null)} onSaved={handleSaved} />
 			)}
+
+			{criando && <NovoUsuarioModal onClose={() => setCriando(false)} onCreated={handleCreated} />}
 		</div>
 	);
 }

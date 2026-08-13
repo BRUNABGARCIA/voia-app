@@ -1,11 +1,20 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { hashPassword } from "../auth/hash";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
 
 // Perfis oferecidos nesta etapa (o banco também aceita "engenheiro" e
 // "financeiro" por compatibilidade com dados existentes, mas a interface
 // de Equipe e Acessos só oferece estes quatro).
 const PERFIS_DISPONIVEIS = ["administrador", "gestor", "colaborador", "visualizador"] as const;
+
+const criarUsuarioSchema = z.object({
+	nome: z.string().trim().min(1).max(200),
+	email: z.string().trim().toLowerCase().min(1).max(254).email(),
+	perfil: z.enum(PERFIS_DISPONIVEIS),
+	senha: z.string().min(8).max(200),
+	ativo: z.boolean().optional().default(true),
+});
 
 const patchUsuarioSchema = z
 	.object({
@@ -26,6 +35,46 @@ usuarios.get("/", async (c) => {
 	).all();
 
 	return c.json({ usuarios: results });
+});
+
+usuarios.post("/", async (c) => {
+	const body = await c.req.json().catch(() => null);
+	const parsed = criarUsuarioSchema.safeParse(body);
+	if (!parsed.success) {
+		return c.json({ error: "dados inválidos" }, 400);
+	}
+
+	const { nome, email, perfil, senha, ativo } = parsed.data;
+
+	const existente = await c.env.DB.prepare("SELECT id FROM usuarios WHERE email = ?").bind(email).first();
+	if (existente) {
+		return c.json({ error: "já existe um usuário com este e-mail" }, 409);
+	}
+
+	// Mesma função de hash usada no login (src/worker/auth/hash.ts) — não
+	// existe uma segunda implementação de PBKDF2.
+	const senhaHash = await hashPassword(senha);
+
+	let novoId: number;
+	try {
+		const resultado = await c.env.DB.prepare(
+			"INSERT INTO usuarios (nome, email, perfil, ativo, senha_hash) VALUES (?, ?, ?, ?, ?) RETURNING id",
+		)
+			.bind(nome, email, perfil, ativo ? 1 : 0, senhaHash)
+			.first<{ id: number }>();
+		if (!resultado) throw new Error("insert sem retorno");
+		novoId = resultado.id;
+	} catch {
+		return c.json({ error: "já existe um usuário com este e-mail" }, 409);
+	}
+
+	const criado = await c.env.DB.prepare(
+		"SELECT id, nome, email, perfil, ativo, ultimo_login_em, criado_em FROM usuarios WHERE id = ?",
+	)
+		.bind(novoId)
+		.first();
+
+	return c.json({ usuario: criado }, 201);
 });
 
 usuarios.patch("/:id", async (c) => {
