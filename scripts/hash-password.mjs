@@ -15,7 +15,10 @@
 import readline from "node:readline";
 
 const ALGORITHM = "pbkdf2-sha256";
-const ITERATIONS = 210_000;
+// Precisa ficar em sincronia com src/worker/auth/hash.ts. Cloudflare
+// Workers rejeita PBKDF2 com iterations acima de 100_000
+// (NotSupportedError), então o limite é esse, não uma preferência.
+const ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
 

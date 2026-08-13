@@ -1,7 +1,9 @@
 import { bytesToBase64, base64ToBytes } from "./base64";
 
 const ALGORITHM = "pbkdf2-sha256";
-const ITERATIONS = 210_000;
+// Cloudflare Workers (implementação PBKDF2 do runtime) rejeita iterations
+// acima de 100_000 com NotSupportedError. Mantém-se no limite suportado.
+const ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
 
