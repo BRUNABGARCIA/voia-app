@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../contexts/useAuth";
+import { useBranding } from "../contexts/useBranding";
 
 function SidebarLink({ to, children }: { to: string; children: React.ReactNode }) {
 	return (
@@ -21,12 +22,17 @@ function SidebarLink({ to, children }: { to: string; children: React.ReactNode }
 
 export default function AppShell() {
 	const { user, logout } = useAuth();
+	const branding = useBranding();
 	const isAdmin = user?.perfil === "administrador";
 
 	return (
 		<div className="flex min-h-screen bg-(--color-bg)">
 			<aside className="flex w-60 shrink-0 flex-col bg-(--color-sidebar-bg) p-5">
-				<div className="font-display text-xl font-light tracking-wide text-(--color-sidebar-text)">VOIA</div>
+				<img
+					src={branding.logoUrl}
+					alt="VOIA Engenharia"
+					className="max-h-12 w-[150px] object-contain"
+				/>
 
 				<nav className="mt-8 flex flex-col gap-1">
 					<SidebarLink to="/">Início</SidebarLink>
@@ -39,6 +45,7 @@ export default function AppShell() {
 						</div>
 						<nav className="mt-2 flex flex-col gap-1">
 							<SidebarLink to="/configuracoes/equipe">Equipe e Acessos</SidebarLink>
+							<SidebarLink to="/configuracoes/aparencia">Aparência</SidebarLink>
 						</nav>
 					</div>
 				)}
