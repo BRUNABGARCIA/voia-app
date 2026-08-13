@@ -5,6 +5,7 @@ const DEFAULT_CONFIG: BrandingConfig = {
 	nomeSistema: "VOIA Engenharia",
 	logoUrl: "/branding/logo-voia.png",
 	faviconUrl: "/branding/favicon-voia.png",
+	logoEscala: 100,
 	atualizadoEm: null,
 };
 

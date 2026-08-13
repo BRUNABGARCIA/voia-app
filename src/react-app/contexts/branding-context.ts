@@ -4,6 +4,7 @@ export interface BrandingConfig {
 	nomeSistema: string;
 	logoUrl: string;
 	faviconUrl: string;
+	logoEscala: number;
 	atualizadoEm: string | null;
 }
 
