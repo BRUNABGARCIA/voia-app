@@ -1,10 +1,12 @@
 import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider } from "./contexts/AuthContext";
 import RequireAuth from "./components/RequireAuth";
+import RequireAdmin from "./components/RequireAdmin";
 import AppShell from "./layouts/AppShell";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import InfraCheck from "./pages/InfraCheck";
+import EquipeAcessos from "./pages/EquipeAcessos";
 
 function App() {
 	return (
@@ -16,6 +18,10 @@ function App() {
 				<Route element={<RequireAuth />}>
 					<Route element={<AppShell />}>
 						<Route index element={<Home />} />
+
+						<Route element={<RequireAdmin />}>
+							<Route path="configuracoes/equipe" element={<EquipeAcessos />} />
+						</Route>
 					</Route>
 				</Route>
 
