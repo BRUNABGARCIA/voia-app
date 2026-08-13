@@ -27,9 +27,17 @@ const patchUsuarioSchema = z
 
 const usuarios = new Hono<AuthEnv>();
 
-usuarios.use("*", withSession, requireAuth, requireRole("administrador"));
+// Lista mínima (id, nome) para preencher seletores de responsável/equipe em
+// outros módulos (Clientes, Projetos). Qualquer usuário autenticado pode
+// ler — diferente do restante deste arquivo, que é admin-only — por isso
+// não usa o requireRole("administrador") aplicado às rotas abaixo.
+usuarios.get("/opcoes", withSession, requireAuth, async (c) => {
+	const { results } = await c.env.DB.prepare("SELECT id, nome FROM usuarios WHERE ativo = 1 ORDER BY nome").all();
 
-usuarios.get("/", async (c) => {
+	return c.json({ usuarios: results });
+});
+
+usuarios.get("/", withSession, requireAuth, requireRole("administrador"), async (c) => {
 	const { results } = await c.env.DB.prepare(
 		"SELECT id, nome, email, perfil, ativo, ultimo_login_em, criado_em FROM usuarios ORDER BY nome",
 	).all();
@@ -37,7 +45,7 @@ usuarios.get("/", async (c) => {
 	return c.json({ usuarios: results });
 });
 
-usuarios.post("/", async (c) => {
+usuarios.post("/", withSession, requireAuth, requireRole("administrador"), async (c) => {
 	const body = await c.req.json().catch(() => null);
 	const parsed = criarUsuarioSchema.safeParse(body);
 	if (!parsed.success) {
@@ -77,7 +85,7 @@ usuarios.post("/", async (c) => {
 	return c.json({ usuario: criado }, 201);
 });
 
-usuarios.patch("/:id", async (c) => {
+usuarios.patch("/:id", withSession, requireAuth, requireRole("administrador"), async (c) => {
 	const id = Number(c.req.param("id"));
 	if (!Number.isInteger(id) || id <= 0) {
 		return c.json({ error: "id inválido" }, 400);
