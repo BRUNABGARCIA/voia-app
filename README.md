@@ -3,13 +3,14 @@
 VOIA é uma plataforma para gestão de projetos de engenharia, conectando
 organizações/clientes (PF ou PJ), projetos e as equipes que os executam.
 
-Este repositório está na **Etapa A — Fundação**: a base técnica mínima
-(banco de dados, identidade visual, estrutura de pastas e um endpoint de
-health check) sobre a qual as próximas etapas serão construídas.
+Este repositório já passou pela **Etapa A — Fundação** (banco de dados,
+identidade visual, estrutura de pastas, health check) e está na
+**Etapa B — Autenticação, usuários e estrutura base** (sessão server-side,
+login, App Shell), validada localmente.
 
-**Ainda não implementado nesta etapa** (propositalmente fora de escopo):
-autenticação, CRM completo, financeiro, Cloudflare R2, documentos, tarefas,
-etapas de projeto, IA VOIA / VOIA Brain e dashboards definitivos.
+**Ainda não implementado** (propositalmente fora de escopo): CRM completo,
+financeiro, Cloudflare R2, documentos, tarefas, etapas de projeto, IA VOIA /
+VOIA Brain e dashboards definitivos.
 
 ## Stack
 
@@ -26,15 +27,20 @@ etapas de projeto, IA VOIA / VOIA Brain e dashboards definitivos.
 
 ```
 migrations/            Migrations SQL do D1 (schema)
+scripts/hash-password.mjs  Gera hash de senha para ativar usuários em dev (interativo)
 seeds/                  Dados fictícios para desenvolvimento (nunca produção)
 src/
   react-app/
-    pages/              Telas
+    contexts/           AuthContext (estado do usuário autenticado)
+    components/         RequireAuth (guarda de rota)
+    layouts/AppShell.tsx  Sidebar + header + área de conteúdo (pós-login)
+    pages/              Telas: Login, Home (autenticada), InfraCheck (/status)
     styles/theme.css    Tokens de identidade visual (cores, tipografia, raios, sombras)
     App.tsx             Rotas
     main.tsx            Bootstrap do React
   worker/
-    index.ts            API (Hono) rodando no Worker, incl. GET /api/health
+    auth/               Hash de senha, sessão, middleware e rotas de autenticação
+    index.ts            API (Hono) rodando no Worker: /api/health, /api/auth/*
 wrangler.json           Configuração do Worker/D1 na Cloudflare
 ```
 
@@ -52,9 +58,10 @@ Subir o ambiente de desenvolvimento (frontend + Worker/API):
 npm run dev
 ```
 
-Aplicação em [http://localhost:5173](http://localhost:5173). A tela inicial é
-uma verificação temporária de infraestrutura (frontend, Worker/API, D1,
-migration), não o dashboard definitivo.
+Aplicação em [http://localhost:5173](http://localhost:5173). `/` exige login
+(App Shell com uma home temporária), `/login` é a tela de entrada, e
+`/status` continua sendo a verificação de infraestrutura (frontend,
+Worker/API, D1, migration) da Etapa A, pública.
 
 ## Cloudflare D1
 
@@ -76,14 +83,17 @@ Migrations ficam em `migrations/`, aplicadas via nome sequencial:
 
 - `0001_init_base.sql` — tabelas `usuarios`, `organizacoes`, `projetos`
   (com foreign keys e índices) e o usuário administrativo de
-  desenvolvimento `admin@voia.local` (sem senha/autenticação nesta etapa).
-  **Já aplicada no banco remoto `voia-db`.**
+  desenvolvimento `admin@voia.local`. **Já aplicada no banco remoto
+  `voia-db`. Imutável — não deve ser alterada.**
+- `0002_auth.sql` — adiciona `usuarios.senha_hash` (nullable) e a tabela
+  `sessoes` (sessão server-side). **Aplicada apenas no banco local** até
+  aqui; a aplicação no D1 remoto depende de autorização explícita.
 
 ```bash
 # Local
 npx wrangler d1 migrations apply voia-db --local
 
-# Remoto (produção) — requer `wrangler login`
+# Remoto (produção) — requer `wrangler login` e autorização explícita
 npx wrangler d1 migrations apply voia-db --remote
 ```
 
@@ -96,6 +106,46 @@ aplicado automaticamente — rode manualmente apenas contra o banco local:
 ```bash
 npx wrangler d1 execute voia-db --local --file=./seeds/dev_seed.sql
 ```
+
+## Autenticação
+
+Sessão server-side com cookie `httpOnly` (não JWT). Endpoints:
+
+- `POST /api/auth/login` — `{ email, senha }`; erro sempre genérico
+  ("credenciais inválidas") para não indicar se o e-mail existe.
+- `POST /api/auth/logout` — invalida a sessão no servidor (D1), não só o
+  cookie no navegador.
+- `GET /api/auth/me` — usuário autenticado atual, ou 401.
+
+Senhas usam PBKDF2-HMAC-SHA256 (Web Crypto nativa do Worker, 210.000
+iterações, salt individual por usuário) — nunca texto puro, nunca
+retornadas em nenhuma resposta. Sessão expira em 7 dias; o token só é
+guardado com hash no D1 (nunca em texto puro).
+
+No frontend, `RequireAuth` protege as rotas privadas (`/`, dentro do
+App Shell) redirecionando para `/login` sem sessão — é só proteção de UX;
+a autoridade real de acesso é o middleware do Worker
+(`withSession`/`requireAuth`/`requireRole`).
+
+### Ativar um usuário em desenvolvimento
+
+`admin@voia.local` (criado na migration 0001) nasce **sem senha** — não
+consegue logar até receber um hash. Nenhuma senha real é commitada em
+código, migration, seed ou documentação. Para ativá-lo localmente:
+
+```bash
+node scripts/hash-password.mjs
+```
+
+O script pede e-mail e senha de forma interativa (senha oculta, nunca como
+argumento de linha de comando) e imprime o `UPDATE` SQL pronto — execute-o
+manualmente contra o D1 **local**:
+
+```bash
+npx wrangler d1 execute voia-db --local --command "UPDATE usuarios SET senha_hash = '...' WHERE email = '...';"
+```
+
+Aplicar no banco remoto (`--remote`) só com autorização explícita.
 
 ## Comandos principais
 
@@ -122,7 +172,11 @@ que rodam `wrangler types`) e não é versionado — ele reflete os bindings de
 
 ## Estágio atual
 
-Etapa A (fundação) concluída: banco de dados inicial, identidade visual,
-estrutura de pastas, health check e tela temporária de verificação.
-Autenticação, CRM, financeiro, R2, documentos, tarefas, etapas, IA VOIA e
-dashboards definitivos ficam para as próximas etapas.
+- **Etapa A (fundação)**: concluída e em produção.
+- **Etapa B (autenticação, usuários, estrutura base)**: implementada e
+  validada **localmente** (login, sessão, logout, App Shell, middleware
+  de autorização). Migration `0002_auth.sql` aplicada só no D1 local;
+  deploy e migration remota pendentes de autorização.
+
+CRM, financeiro, R2, documentos, tarefas, etapas, IA VOIA e dashboards
+definitivos ficam para as próximas etapas.
