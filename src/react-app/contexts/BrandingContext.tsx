@@ -8,10 +8,15 @@ const DEFAULT_CONFIG: BrandingConfig = {
 	atualizadoEm: null,
 };
 
-function aplicarFavicon(faviconUrl: string, versao: string | null) {
-	const href = versao ? `${faviconUrl}?v=${encodeURIComponent(versao)}` : faviconUrl;
-	const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-	if (link) link.href = href;
+/**
+ * Acrescenta ?v=<atualizado_em> na URL — sem isso, a logo/favicon usam
+ * sempre a mesma URL (/api/configuracoes/logo|favicon), então o
+ * navegador pode continuar mostrando a imagem antiga em cache mesmo
+ * depois de salvar uma nova na mesma sessão, já que nem a tag <img> nem
+ * o <link rel="icon"> percebem "mudança" numa URL idêntica.
+ */
+function versionar(url: string, versao: string | null): string {
+	return versao ? `${url}?v=${encodeURIComponent(versao)}` : url;
 }
 
 export function BrandingProvider({ children }: { children: ReactNode }) {
@@ -45,15 +50,21 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 		};
 	}, []);
 
+	const logoUrl = versionar(config.logoUrl, config.atualizadoEm);
+	const faviconUrl = versionar(config.faviconUrl, config.atualizadoEm);
+
 	useEffect(() => {
 		document.title = config.nomeSistema;
 	}, [config.nomeSistema]);
 
 	useEffect(() => {
-		aplicarFavicon(config.faviconUrl, config.atualizadoEm);
-	}, [config.faviconUrl, config.atualizadoEm]);
+		const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+		if (link) link.href = faviconUrl;
+	}, [faviconUrl]);
 
 	return (
-		<BrandingContext.Provider value={{ ...config, loading, refresh }}>{children}</BrandingContext.Provider>
+		<BrandingContext.Provider value={{ ...config, logoUrl, faviconUrl, loading, refresh }}>
+			{children}
+		</BrandingContext.Provider>
 	);
 }
