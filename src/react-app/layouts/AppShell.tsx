@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import { useBranding } from "../contexts/useBranding";
+import { logoDimensoes } from "../lib/logo-escala";
 
 function SidebarLink({ to, children }: { to: string; children: React.ReactNode }) {
 	return (
@@ -24,6 +25,7 @@ export default function AppShell() {
 	const { user, logout } = useAuth();
 	const branding = useBranding();
 	const isAdmin = user?.perfil === "administrador";
+	const logoDim = logoDimensoes(branding.logoEscala);
 
 	return (
 		<div className="flex min-h-screen bg-(--color-bg)">
@@ -31,7 +33,8 @@ export default function AppShell() {
 				<img
 					src={branding.logoUrl}
 					alt="VOIA Engenharia"
-					className="max-h-12 w-[150px] object-contain"
+					className="object-contain"
+					style={{ width: `${logoDim.width}px`, height: `${logoDim.height}px` }}
 				/>
 
 				<nav className="mt-8 flex flex-col gap-1">
