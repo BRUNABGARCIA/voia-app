@@ -32,6 +32,12 @@ auth.post("/login", async (c) => {
 	}
 
 	const token = await createSession(c.env.DB, usuario.id);
+
+	// Registro de auditoria (coluna adicionada na migration 0003), gravado
+	// só depois do login já autenticado com sucesso — não participa da
+	// validação de credenciais nem da criação da sessão acima.
+	await c.env.DB.prepare("UPDATE usuarios SET ultimo_login_em = CURRENT_TIMESTAMP WHERE id = ?").bind(usuario.id).run();
+
 	setCookie(c, SESSION_COOKIE_NAME, token, {
 		httpOnly: true,
 		secure: new URL(c.req.url).protocol === "https:",
