@@ -13,15 +13,20 @@ INSERT INTO usuarios (nome, email, perfil, ativo) VALUES
 	('Gestora Exemplo', 'gestor@voia.local', 'gestor', 1),
 	('Engenheiro Exemplo', 'engenheiro@voia.local', 'engenheiro', 1);
 
--- Organizações fictícias (uma PJ, uma PF)
-INSERT INTO organizacoes (tipo, nome, nome_fantasia, documento, email, telefone) VALUES
-	('PJ', 'Engenharia Exemplo Ltda', 'Exemplo Engenharia', '00000000000191', 'contato@exemplo-engenharia.test', '(00) 0000-0000'),
-	('PF', 'Cliente Exemplo da Silva', NULL, '00000000000', 'cliente.exemplo@correio.test', '(00) 00000-0000');
+-- Clientes fictícios (um PJ, um PF) — tabela "clientes" desde a migration
+-- 0006 (evolução de "organizacoes", que existia desde 0001_init_base.sql).
+INSERT INTO clientes (tipo, nome, nome_fantasia, documento, email, telefone, status) VALUES
+	('PJ', 'Engenharia Exemplo Ltda', 'Exemplo Engenharia', '00000000000191', 'contato@exemplo-engenharia.test', '(00) 0000-0000', 'ativo'),
+	('PF', 'Cliente Exemplo da Silva', NULL, '00000000000', 'cliente.exemplo@correio.test', '(00) 00000-0000', 'lead');
 
--- Projetos fictícios vinculados às organizações acima
-INSERT INTO projetos (organizacao_id, nome, descricao, status, gerente_id, criado_por_id) VALUES
+-- Projetos fictícios vinculados aos clientes acima. "codigo" fica NULL
+-- de propósito: o código automático (PRJ-{ANO}-0001) só é gerado pela
+-- rota POST /api/projetos (via a tabela "contadores"), nunca digitado
+-- manualmente — inserir um código fixo aqui poderia colidir com o
+-- próximo código real gerado pela aplicação no mesmo ano.
+INSERT INTO projetos (cliente_id, nome, descricao, status, gerente_id, criado_por_id) VALUES
 	(
-		(SELECT id FROM organizacoes WHERE documento = '00000000000191'),
+		(SELECT id FROM clientes WHERE documento = '00000000000191'),
 		'Projeto de Exemplo - Reforma Industrial',
 		'Projeto fictício usado apenas para validar a fundação do VOIA APP.',
 		'em_andamento',
@@ -29,7 +34,7 @@ INSERT INTO projetos (organizacao_id, nome, descricao, status, gerente_id, criad
 		(SELECT id FROM usuarios WHERE email = 'admin@voia.local')
 	),
 	(
-		(SELECT id FROM organizacoes WHERE documento = '00000000000'),
+		(SELECT id FROM clientes WHERE documento = '00000000000'),
 		'Projeto de Exemplo - Consultoria Residencial',
 		'Projeto fictício usado apenas para validar a fundação do VOIA APP.',
 		'planejamento',
