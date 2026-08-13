@@ -6,11 +6,27 @@ const MAX_BYTES = 500 * 1024; // 500 KB
 const FALLBACK_LOGO = "/branding/logo-voia.png";
 const FALLBACK_FAVICON = "/branding/favicon-voia.png";
 
+const LOGO_ESCALA_MIN = 60;
+const LOGO_ESCALA_MAX = 130;
+
 interface LinhaConfig {
 	nome_sistema: string;
 	tem_logo: number;
 	tem_favicon: number;
+	logo_escala: number;
 	atualizado_em: string;
+}
+
+/**
+ * O D1 local (e, historicamente, também em produção) não garante que uma
+ * coluna BLOB retorne como ArrayBuffer/Uint8Array — em testes locais veio
+ * como Array simples de números, e `new Response(array, ...)` serializa
+ * isso via String() (bytes separados por vírgula) em vez de enviar binário.
+ * Uint8Array aceita tanto ArrayBuffer quanto array-like como entrada, então
+ * normaliza os dois casos.
+ */
+function bytesParaResponseBody(blob: ArrayBuffer | number[]): Uint8Array {
+	return new Uint8Array(blob);
 }
 
 /** Assinatura real dos bytes do arquivo — nunca confia no Content-Type declarado pelo navegador. */
@@ -66,25 +82,27 @@ function respostaConfig(row: LinhaConfig | null) {
 		nomeSistema: row?.nome_sistema ?? "VOIA Engenharia",
 		logoUrl: row?.tem_logo ? "/api/configuracoes/logo" : FALLBACK_LOGO,
 		faviconUrl: row?.tem_favicon ? "/api/configuracoes/favicon" : FALLBACK_FAVICON,
+		logoEscala: row?.logo_escala ?? 100,
 		atualizadoEm: row?.atualizado_em ?? null,
 	};
 }
+
+const SELECT_CONFIG =
+	"SELECT nome_sistema, logo_blob IS NOT NULL AS tem_logo, favicon_blob IS NOT NULL AS tem_favicon, logo_escala, atualizado_em FROM configuracoes_aparencia WHERE id = 1";
 
 const configuracoes = new Hono<AuthEnv>();
 
 // Público — logo, favicon e nome do sistema não são informação
 // administrativa/sensível. Nunca inclui os BLOBs na resposta JSON.
 configuracoes.get("/", async (c) => {
-	const row = await c.env.DB.prepare(
-		"SELECT nome_sistema, logo_blob IS NOT NULL AS tem_logo, favicon_blob IS NOT NULL AS tem_favicon, atualizado_em FROM configuracoes_aparencia WHERE id = 1",
-	).first<LinhaConfig>();
+	const row = await c.env.DB.prepare(SELECT_CONFIG).first<LinhaConfig>();
 
 	return c.json(respostaConfig(row));
 });
 
 configuracoes.get("/logo", async (c) => {
 	const row = await c.env.DB.prepare("SELECT logo_blob, logo_mime FROM configuracoes_aparencia WHERE id = 1").first<{
-		logo_blob: ArrayBuffer | null;
+		logo_blob: ArrayBuffer | number[] | null;
 		logo_mime: string | null;
 	}>();
 
@@ -92,7 +110,7 @@ configuracoes.get("/logo", async (c) => {
 		return c.redirect(FALLBACK_LOGO, 302);
 	}
 
-	return new Response(row.logo_blob, {
+	return new Response(bytesParaResponseBody(row.logo_blob), {
 		headers: { "Content-Type": row.logo_mime ?? "image/png", "Cache-Control": "no-cache" },
 	});
 });
@@ -100,13 +118,13 @@ configuracoes.get("/logo", async (c) => {
 configuracoes.get("/favicon", async (c) => {
 	const row = await c.env.DB.prepare(
 		"SELECT favicon_blob, favicon_mime FROM configuracoes_aparencia WHERE id = 1",
-	).first<{ favicon_blob: ArrayBuffer | null; favicon_mime: string | null }>();
+	).first<{ favicon_blob: ArrayBuffer | number[] | null; favicon_mime: string | null }>();
 
 	if (!row?.favicon_blob) {
 		return c.redirect(FALLBACK_FAVICON, 302);
 	}
 
-	return new Response(row.favicon_blob, {
+	return new Response(bytesParaResponseBody(row.favicon_blob), {
 		headers: { "Content-Type": row.favicon_mime ?? "image/png", "Cache-Control": "no-cache" },
 	});
 });
@@ -121,6 +139,15 @@ configuracoes.patch("/", withSession, requireAuth, requireRole("administrador"),
 	const nomeSistema = typeof nomeSistemaBruto === "string" ? nomeSistemaBruto.trim() : undefined;
 	if (nomeSistema !== undefined && (nomeSistema.length === 0 || nomeSistema.length > 200)) {
 		return c.json({ error: "nome do sistema inválido" }, 400);
+	}
+
+	const logoEscalaBruto = body["logo_escala"];
+	let logoEscala: number | undefined;
+	if (typeof logoEscalaBruto === "string" && logoEscalaBruto.length > 0) {
+		logoEscala = Number(logoEscalaBruto);
+		if (!Number.isInteger(logoEscala) || logoEscala < LOGO_ESCALA_MIN || logoEscala > LOGO_ESCALA_MAX) {
+			return c.json({ error: `tamanho da logo inválido (use entre ${LOGO_ESCALA_MIN} e ${LOGO_ESCALA_MAX})` }, 400);
+		}
 	}
 
 	const logoFile = body["logo"];
@@ -156,14 +183,16 @@ configuracoes.patch("/", withSession, requireAuth, requireRole("administrador"),
 		campos.push("favicon_blob = ?", "favicon_mime = ?");
 		valores.push(favicon.bytes, favicon.mime);
 	}
+	if (logoEscala !== undefined) {
+		campos.push("logo_escala = ?");
+		valores.push(logoEscala);
+	}
 
 	await c.env.DB.prepare(`UPDATE configuracoes_aparencia SET ${campos.join(", ")} WHERE id = 1`)
 		.bind(...valores)
 		.run();
 
-	const row = await c.env.DB.prepare(
-		"SELECT nome_sistema, logo_blob IS NOT NULL AS tem_logo, favicon_blob IS NOT NULL AS tem_favicon, atualizado_em FROM configuracoes_aparencia WHERE id = 1",
-	).first<LinhaConfig>();
+	const row = await c.env.DB.prepare(SELECT_CONFIG).first<LinhaConfig>();
 
 	return c.json(respostaConfig(row));
 });
