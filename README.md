@@ -1,90 +1,128 @@
-# React + Vite + Hono + Cloudflare Workers
+# VOIA APP
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/vite-react-template)
+VOIA é uma plataforma para gestão de projetos de engenharia, conectando
+organizações/clientes (PF ou PJ), projetos e as equipes que os executam.
 
-This template provides a minimal setup for building a React application with TypeScript and Vite, designed to run on Cloudflare Workers. It features hot module replacement, ESLint integration, and the flexibility of Workers deployments.
+Este repositório está na **Etapa A — Fundação**: a base técnica mínima
+(banco de dados, identidade visual, estrutura de pastas e um endpoint de
+health check) sobre a qual as próximas etapas serão construídas.
 
-![React + TypeScript + Vite + Cloudflare Workers](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/fc7b4b62-442b-4769-641b-ad4422d74300/public)
+**Ainda não implementado nesta etapa** (propositalmente fora de escopo):
+autenticação, CRM completo, financeiro, Cloudflare R2, documentos, tarefas,
+etapas de projeto, IA VOIA / VOIA Brain e dashboards definitivos.
 
-<!-- dash-content-start -->
+## Stack
 
-🚀 Supercharge your web development with this powerful stack:
+- [React 19](https://react.dev/) + [React Router 7](https://reactrouter.com/) — frontend
+- [Vite 7](https://vite.dev/) — build/dev server
+- [Tailwind CSS 4](https://tailwindcss.com/) — estilos, via `@tailwindcss/vite`
+- [Hono](https://hono.dev/) — API rodando no Worker
+- [Cloudflare Workers](https://developers.cloudflare.com/workers/) — runtime
+- [Cloudflare D1](https://developers.cloudflare.com/d1/) — banco de dados (SQLite)
+- [Zod](https://zod.dev/) — validação de dados (preparado para as próximas etapas)
+- TypeScript, ESLint
 
-- [**React**](https://react.dev/) - A modern UI library for building interactive interfaces
-- [**Vite**](https://vite.dev/) - Lightning-fast build tooling and development server
-- [**Hono**](https://hono.dev/) - Ultralight, modern backend framework
-- [**Cloudflare Workers**](https://developers.cloudflare.com/workers/) - Edge computing platform for global deployment
+## Estrutura
 
-### ✨ Key Features
-
-- 🔥 Hot Module Replacement (HMR) for rapid development
-- 📦 TypeScript support out of the box
-- 🛠️ ESLint configuration included
-- ⚡ Zero-config deployment to Cloudflare's global network
-- 🎯 API routes with Hono's elegant routing
-- 🔄 Full-stack development setup
-- 🔎 Built-in Observability to monitor your Worker
-
-Get started in minutes with local development or deploy directly via the Cloudflare dashboard. Perfect for building modern, performant web applications at the edge.
-
-<!-- dash-content-end -->
-
-## Getting Started
-
-To start a new project with this template, run:
-
-```bash
-npm create cloudflare@latest -- --template=cloudflare/templates/vite-react-template
+```
+migrations/            Migrations SQL do D1 (schema)
+seeds/                  Dados fictícios para desenvolvimento (nunca produção)
+src/
+  react-app/
+    pages/              Telas
+    styles/theme.css    Tokens de identidade visual (cores, tipografia, raios, sombras)
+    App.tsx             Rotas
+    main.tsx            Bootstrap do React
+  worker/
+    index.ts            API (Hono) rodando no Worker, incl. GET /api/health
+wrangler.json           Configuração do Worker/D1 na Cloudflare
 ```
 
-A live deployment of this template is available at:
-[https://react-vite-template.templates.workers.dev](https://react-vite-template.templates.workers.dev)
+## Execução local
 
-## Development
-
-Install dependencies:
+Instalar dependências:
 
 ```bash
 npm install
 ```
 
-Start the development server with:
+Subir o ambiente de desenvolvimento (frontend + Worker/API):
 
 ```bash
 npm run dev
 ```
 
-Your application will be available at [http://localhost:5173](http://localhost:5173).
+Aplicação em [http://localhost:5173](http://localhost:5173). A tela inicial é
+uma verificação temporária de infraestrutura (frontend, Worker/API, D1,
+migration), não o dashboard definitivo.
 
-## Production
+## Cloudflare D1
 
-Build your project for production:
+O binding `DB` em `wrangler.json` aponta para o banco D1 `voia-db`, já
+provisionado nesta conta Cloudflare, com `database_id` configurado em
+`wrangler.json` (`d1_databases[0].database_id`). A migration
+`0001_init_base.sql` já foi aplicada com sucesso no banco remoto.
 
-```bash
-npm run build
-```
-
-Preview your build locally:
-
-```bash
-npm run preview
-```
-
-Deploy your project to Cloudflare Workers:
+Para desenvolvimento **local**, o Wrangler cria automaticamente um banco
+SQLite local separado (não usa o banco remoto) ao aplicar as migrations:
 
 ```bash
-npm run build && npm run deploy
+npx wrangler d1 migrations apply voia-db --local
 ```
 
-Monitor your workers:
+## Migrations
+
+Migrations ficam em `migrations/`, aplicadas via nome sequencial:
+
+- `0001_init_base.sql` — tabelas `usuarios`, `organizacoes`, `projetos`
+  (com foreign keys e índices) e o usuário administrativo de
+  desenvolvimento `admin@voia.local` (sem senha/autenticação nesta etapa).
+  **Já aplicada no banco remoto `voia-db`.**
 
 ```bash
-npx wrangler tail
+# Local
+npx wrangler d1 migrations apply voia-db --local
+
+# Remoto (produção) — requer `wrangler login`
+npx wrangler d1 migrations apply voia-db --remote
 ```
 
-## Additional Resources
+## Seed de desenvolvimento
 
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Vite Documentation](https://vitejs.dev/guide/)
-- [React Documentation](https://reactjs.org/)
-- [Hono Documentation](https://hono.dev/)
+`seeds/dev_seed.sql` contém dados **fictícios** (usuários, organizações e
+projetos de exemplo) para facilitar o desenvolvimento local. Nunca é
+aplicado automaticamente — rode manualmente apenas contra o banco local:
+
+```bash
+npx wrangler d1 execute voia-db --local --file=./seeds/dev_seed.sql
+```
+
+## Comandos principais
+
+| Comando | Descrição |
+| --- | --- |
+| `npm run dev` | Ambiente de desenvolvimento (Vite + Worker) |
+| `npm run build` | Type-check + build de produção |
+| `npm run lint` | ESLint |
+| `npm run check` | Type-check + build + `wrangler deploy --dry-run` |
+| `npm run cf-typegen` | Regera `worker-configuration.d.ts` a partir de `wrangler.json` |
+| `npm run deploy` | Deploy no Cloudflare Workers (requer `wrangler login`) |
+
+`worker-configuration.d.ts` é gerado automaticamente (via `predev`/`prebuild`,
+que rodam `wrangler types`) e não é versionado — ele reflete os bindings de
+`wrangler.json` (ex.: `Env.DB`) e ficaria desatualizado se fosse commitado.
+
+## Health check
+
+`GET /api/health` confirma, sem expor dados sensíveis:
+
+- se a API está respondendo;
+- se o binding D1 está configurado e a conexão funciona;
+- se a migration inicial já foi aplicada (tabela `usuarios` existe).
+
+## Estágio atual
+
+Etapa A (fundação) concluída: banco de dados inicial, identidade visual,
+estrutura de pastas, health check e tela temporária de verificação.
+Autenticação, CRM, financeiro, R2, documentos, tarefas, etapas, IA VOIA e
+dashboards definitivos ficam para as próximas etapas.

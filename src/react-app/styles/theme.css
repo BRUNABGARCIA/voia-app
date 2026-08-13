@@ -1,0 +1,82 @@
+/*
+ * VOIA — tokens de identidade visual
+ *
+ * Fonte única de verdade para cores, tipografia, espaçamentos relevantes,
+ * raios, sombras e estados. Componentes devem consumir estes tokens
+ * (classes utilitárias Tailwind geradas a partir de @theme, ou as
+ * variáveis semânticas em :root) em vez de valores soltos.
+ */
+
+@import "tailwindcss";
+
+@theme {
+	/* Tipografia */
+	--font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+	--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+	/* Verde escuro institucional (cor primária da marca) */
+	--color-voia-green-950: #071f17;
+	--color-voia-green-900: #0d3226;
+	--color-voia-green-800: #124435;
+	--color-voia-green-700: #195c48;
+	--color-voia-green-600: #23755d;
+	--color-voia-green-500: #2f9270;
+
+	/* Dourado — usar com moderação, como destaque */
+	--color-voia-gold-600: #a3792f;
+	--color-voia-gold-500: #c79a3c;
+	--color-voia-gold-400: #d9b563;
+	--color-voia-gold-300: #e8ce93;
+
+	/* Bege / off-white */
+	--color-voia-beige-100: #f6f1e6;
+	--color-voia-beige-50: #fbf8f2;
+
+	/* Neutros (tom levemente quente, harmoniza com verde/dourado) */
+	--color-voia-neutral-900: #1b1f1c;
+	--color-voia-neutral-700: #3d443f;
+	--color-voia-neutral-500: #6a7570;
+	--color-voia-neutral-300: #a9b1ac;
+	--color-voia-neutral-100: #e7eae6;
+
+	/* Estados semânticos */
+	--color-voia-success: #2f9c6e;
+	--color-voia-warning: #d9a62c;
+	--color-voia-danger: #b3432f;
+	--color-voia-info: #2e6f8e;
+
+	/* Raios */
+	--radius-card: 1rem;
+	--radius-control: 0.5rem;
+
+	/* Sombras */
+	--shadow-card: 0 1px 2px rgba(7, 31, 23, 0.06), 0 8px 24px rgba(7, 31, 23, 0.08);
+	--shadow-elevated: 0 4px 12px rgba(7, 31, 23, 0.12), 0 16px 40px rgba(7, 31, 23, 0.14);
+}
+
+/*
+ * Tokens semânticos: nomeiam papéis de UI (fundo, superfície, texto,
+ * borda, foco) em vez de cores cruas, para permitir evolução do tema
+ * sem reescrever componentes.
+ */
+:root {
+	--color-bg: var(--color-voia-beige-50);
+	--color-surface: #ffffff;
+	--color-text: var(--color-voia-green-950);
+	--color-text-muted: var(--color-voia-neutral-700);
+	--color-border: var(--color-voia-neutral-100);
+	--color-primary: var(--color-voia-green-800);
+	--color-primary-hover: var(--color-voia-green-900);
+	--color-accent: var(--color-voia-gold-500);
+	--color-accent-hover: var(--color-voia-gold-600);
+	--color-focus-ring: var(--color-voia-gold-500);
+
+	/* Espaçamentos semânticos usados em layouts de página/cartão */
+	--space-page: 2rem;
+	--space-section: 3rem;
+	--space-card: 1.5rem;
+
+	/* Opacidade padrão para estados desabilitados */
+	--opacity-disabled: 0.5;
+}

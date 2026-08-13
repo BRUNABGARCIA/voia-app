@@ -197,3 +197,7 @@ dist
 !.env.example
 .dev.vars*
 !.dev.vars.example
+
+# Gerado por `wrangler types` a partir de wrangler.json (veja scripts
+# predev/prebuild em package.json e a seção D1 do README).
+worker-configuration.d.ts

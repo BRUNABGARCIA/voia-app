@@ -11,5 +11,13 @@
 	"assets": {
 		"directory": "./dist/client",
 		"not_found_handling": "single-page-application"
-	}
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "voia-db",
+			"database_id": "217f7490-d357-4c36-827f-afd54589adb9",
+			"migrations_dir": "migrations"
+		}
+	]
 }
