@@ -16,9 +16,7 @@
 		{
 			"binding": "DB",
 			"database_name": "voia-db",
-			// PENDENTE: preencher com o ID real após criar o banco com
-			// `npx wrangler d1 create voia-db` (veja README.md, seção D1).
-			"database_id": "REPLACE_WITH_D1_DATABASE_ID",
+			"database_id": "217f7490-d357-4c36-827f-afd54589adb9",
 			"migrations_dir": "migrations"
 		}
 	]
