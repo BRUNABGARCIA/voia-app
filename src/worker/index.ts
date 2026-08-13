@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import auth from "./auth/routes";
+import usuarios from "./usuarios/routes";
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.route("/api/auth", auth);
+app.route("/api/usuarios", usuarios);
 
 app.get("/api/health", async (c) => {
 	const timestamp = new Date().toISOString();
