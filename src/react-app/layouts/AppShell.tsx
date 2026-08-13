@@ -39,6 +39,7 @@ export default function AppShell() {
 
 				<nav className="mt-8 flex flex-col gap-1">
 					<SidebarLink to="/">Início</SidebarLink>
+					<SidebarLink to="/clientes">Clientes</SidebarLink>
 				</nav>
 
 				{isAdmin && (

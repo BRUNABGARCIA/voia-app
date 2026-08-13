@@ -9,6 +9,8 @@ import Home from "./pages/Home";
 import InfraCheck from "./pages/InfraCheck";
 import EquipeAcessos from "./pages/EquipeAcessos";
 import Aparencia from "./pages/Aparencia";
+import Clientes from "./pages/Clientes";
+import ClienteWorkspace from "./pages/ClienteWorkspace";
 
 function App() {
 	return (
@@ -21,6 +23,9 @@ function App() {
 					<Route element={<RequireAuth />}>
 						<Route element={<AppShell />}>
 							<Route index element={<Home />} />
+
+							<Route path="clientes" element={<Clientes />} />
+							<Route path="clientes/:id" element={<ClienteWorkspace />} />
 
 							<Route element={<RequireAdmin />}>
 								<Route path="configuracoes/equipe" element={<EquipeAcessos />} />
