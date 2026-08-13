@@ -10,12 +10,21 @@
 @import "tailwindcss";
 
 @theme {
-	/* Tipografia */
-	--font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
+	/* Tipografia
+	 * --font-display usa a mesma família de --font-sans (Inter, já
+	 * carregada) em peso leve (300) e tamanho maior no local de uso —
+	 * não assume nenhuma fonte de marca específica ainda. Trocar por uma
+	 * fonte institucional real exige só mudar este token.
+	 */
+	--font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
 	--font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 	--font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
-	/* Verde escuro institucional (cor primária da marca) */
+	/* Identidade oficial VOIA (site institucional) */
+	--color-voia-black: #000000;
+	--color-voia-yellow: #f7c94a;
+
+	/* Verde escuro institucional (cor primária herdada da Etapa A) */
 	--color-voia-green-950: #071f17;
 	--color-voia-green-900: #0d3226;
 	--color-voia-green-800: #124435;
@@ -71,6 +80,14 @@
 	--color-accent: var(--color-voia-gold-500);
 	--color-accent-hover: var(--color-voia-gold-600);
 	--color-focus-ring: var(--color-voia-gold-500);
+
+	/* Sidebar institucional (preto + amarelo VOIA #F7C94A) */
+	--color-sidebar-bg: var(--color-voia-black);
+	--color-sidebar-border: #262626;
+	--color-sidebar-text: #ffffff;
+	--color-sidebar-text-muted: #a3a3a3;
+	--color-sidebar-active-bg: var(--color-voia-yellow);
+	--color-sidebar-active-text: var(--color-voia-black);
 
 	/* Espaçamentos semânticos usados em layouts de página/cartão */
 	--space-page: 2rem;

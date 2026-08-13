@@ -1,26 +1,47 @@
 import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 
+function SidebarLink({ to, children }: { to: string; children: React.ReactNode }) {
+	return (
+		<NavLink
+			to={to}
+			end
+			className={({ isActive }) =>
+				`block rounded-control px-3 py-2 text-sm font-medium transition-colors ${
+					isActive
+						? "bg-(--color-sidebar-active-bg) text-(--color-sidebar-active-text)"
+						: "text-(--color-sidebar-text) hover:bg-white/10"
+				}`
+			}
+		>
+			{children}
+		</NavLink>
+	);
+}
+
 export default function AppShell() {
 	const { user, logout } = useAuth();
+	const isAdmin = user?.perfil === "administrador";
 
 	return (
 		<div className="flex min-h-screen bg-(--color-bg)">
-			<aside className="w-56 shrink-0 border-r border-voia-neutral-100 bg-white p-4">
-				<div className="font-display text-lg text-voia-green-900">VOIA</div>
-				<nav className="mt-6 flex flex-col gap-1">
-					<NavLink
-						to="/"
-						end
-						className={({ isActive }) =>
-							`rounded-control px-3 py-2 text-sm font-medium ${
-								isActive ? "bg-voia-green-800 text-white" : "text-voia-neutral-700 hover:bg-voia-beige-100"
-							}`
-						}
-					>
-						Início
-					</NavLink>
+			<aside className="flex w-60 shrink-0 flex-col bg-(--color-sidebar-bg) p-5">
+				<div className="font-display text-xl font-light tracking-wide text-(--color-sidebar-text)">VOIA</div>
+
+				<nav className="mt-8 flex flex-col gap-1">
+					<SidebarLink to="/">Início</SidebarLink>
 				</nav>
+
+				{isAdmin && (
+					<div className="mt-8">
+						<div className="px-3 text-xs font-medium uppercase tracking-wider text-(--color-sidebar-text-muted)">
+							Configurações
+						</div>
+						<nav className="mt-2 flex flex-col gap-1">
+							<SidebarLink to="/configuracoes/equipe">Equipe e Acessos</SidebarLink>
+						</nav>
+					</div>
+				)}
 			</aside>
 
 			<div className="flex flex-1 flex-col">
