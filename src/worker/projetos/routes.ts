@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
-import { contarEtapas, calcularProgresso, sincronizarProgresso } from "./progresso";
-import { gerarEtapasIniciais } from "./geracao-etapas";
+import { sincronizarProgresso, obterProgressoAtual } from "./progresso";
+import { gerarEtapasIniciais, adicionarEstruturaTipoServico, tiposServicoDisponiveisParaGerar } from "./geracao-etapas";
+import { sqlEtapaAtrasada, sqlProjetoAtrasado, sqlTarefaAtrasada } from "./atraso";
+import { registrarEvento } from "./historico";
 
 const STATUS = [
 	"prospeccao",
@@ -93,16 +95,52 @@ const patchEtapaSchema = z
 	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
 
 // "atrasada" é sempre derivada (nunca um status persistido): prazo previsto
-// vencido e etapa ainda não concluída. Calculada em SQL com date('now') para
-// não depender do relógio local do worker.
+// vencido, OU alguma tarefa dela atrasada (worker/projetos/atraso.ts —
+// mesma regra usada no Dashboard). Calculada em SQL com date('now') para
+// não depender do relógio local do worker. tarefas_total exclui canceladas
+// (mesma régua do denominador do progresso).
 const SELECT_ETAPA = `
 	SELECT id, projeto_id, nome, descricao, ordem, status,
 	       data_inicio_prevista, data_fim_prevista, data_inicio_real, data_conclusao,
 	       observacao_interna, visivel_cliente, peso, tipo_servico_id, modelo_etapa_id,
 	       criado_em, atualizado_em,
-	       (data_fim_prevista IS NOT NULL AND data_fim_prevista < date('now') AND status <> 'concluida') AS atrasada
+	       ${sqlEtapaAtrasada("projeto_etapas")} AS atrasada,
+	       (SELECT COUNT(*) FROM projeto_tarefas pt WHERE pt.etapa_id = projeto_etapas.id AND pt.status <> 'cancelada') AS tarefas_total,
+	       (SELECT COUNT(*) FROM projeto_tarefas pt WHERE pt.etapa_id = projeto_etapas.id AND pt.status = 'concluida') AS tarefas_concluidas
 	FROM projeto_etapas
 `;
+
+const STATUS_TAREFA = ["pendente", "em_andamento", "aguardando", "concluida", "cancelada"] as const;
+
+const camposTarefa = {
+	nome: z.string().trim().min(1).max(200),
+	descricao: textoOpcional(2000),
+	ordem: z.number().int().min(0).optional(),
+	status: z.enum(STATUS_TAREFA).optional(),
+	prioridade: z.enum(PRIORIDADES).optional(),
+	responsavel_id: z.number().int().positive().optional().nullable(),
+	data_inicio: textoOpcional(10),
+	prazo: textoOpcional(10),
+	visivel_cliente: z.boolean().optional(),
+};
+
+const criarTarefaSchema = z.object(camposTarefa);
+
+const patchTarefaSchema = z
+	.object(camposTarefa)
+	.partial()
+	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
+
+const SELECT_TAREFA = `
+	SELECT t.id, t.projeto_id, t.etapa_id, t.nome, t.descricao, t.ordem, t.status, t.prioridade,
+	       t.responsavel_id, u.nome AS responsavel_nome, t.data_inicio, t.prazo, t.data_conclusao,
+	       t.visivel_cliente, t.origem_modelo_id, t.criado_em, t.atualizado_em,
+	       ${sqlTarefaAtrasada("t")} AS atrasada
+	FROM projeto_tarefas t
+	LEFT JOIN usuarios u ON u.id = t.responsavel_id
+`;
+
+const gerarEstruturaSchema = z.object({ tipo_servico_id: z.number().int().positive() });
 
 /**
  * Gera o código PRJ-{ANO}-{sequencial}, reiniciado a cada ano. Um único
@@ -124,11 +162,15 @@ async function gerarCodigoProjeto(db: D1Database): Promise<string> {
 	return `PRJ-${ano}-${sequencial}`;
 }
 
+// "atrasado" combina a regra já existente (prazo do projeto vencido) com a
+// nova (alguma etapa/tarefa do projeto atrasada) — mesmo fragmento SQL
+// usado no Dashboard, para as duas telas nunca divergirem.
 const SELECT_LISTA = `
 	SELECT p.id, p.codigo, p.nome, p.status, p.prioridade, p.progresso, p.valor_contratado,
 	       p.data_inicio, p.prazo_previsto, p.criado_em, p.atualizado_em,
 	       p.cliente_id, c.nome AS cliente_nome,
-	       p.gerente_id, u.nome AS gerente_nome
+	       p.gerente_id, u.nome AS gerente_nome,
+	       ${sqlProjetoAtrasado("p")} AS atrasado
 	FROM projetos p
 	JOIN clientes c ON c.id = p.cliente_id
 	LEFT JOIN usuarios u ON u.id = p.gerente_id
@@ -194,7 +236,7 @@ projetos.get("/:id", withSession, requireAuth, async (c) => {
 	}
 
 	const projeto = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome
+		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
 		 FROM projetos p
 		 JOIN clientes c ON c.id = p.cliente_id
 		 LEFT JOIN usuarios u ON u.id = p.gerente_id
@@ -297,7 +339,7 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	}
 
 	const criado = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome
+		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
 		 FROM projetos p
 		 JOIN clientes c ON c.id = p.cliente_id
 		 LEFT JOIN usuarios u ON u.id = p.gerente_id
@@ -315,7 +357,9 @@ projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 		return c.json({ error: "id inválido" }, 400);
 	}
 
-	const existente = await c.env.DB.prepare("SELECT id FROM projetos WHERE id = ?").bind(id).first();
+	const existente = await c.env.DB.prepare("SELECT id, status FROM projetos WHERE id = ?")
+		.bind(id)
+		.first<{ id: number; status: string }>();
 	if (!existente) {
 		return c.json({ error: "projeto não encontrado" }, 404);
 	}
@@ -365,8 +409,21 @@ projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 		}
 	}
 
+	if (parsed.data.status !== undefined && parsed.data.status !== existente.status) {
+		await registrarEvento(c.env.DB, {
+			projetoId: id,
+			tipo: "sistema",
+			tipoEvento: "status_projeto_alterado",
+			entidadeTipo: "projeto",
+			entidadeId: id,
+			titulo: `Status do projeto alterado para "${parsed.data.status}"`,
+			usuarioId: atual.id,
+			visivelCliente: false,
+		});
+	}
+
 	const atualizado = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome
+		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
 		 FROM projetos p
 		 JOIN clientes c ON c.id = p.cliente_id
 		 LEFT JOIN usuarios u ON u.id = p.gerente_id
@@ -500,14 +557,9 @@ projetos.get("/:id/etapas", withSession, requireAuth, async (c) => {
 		.bind(projetoId)
 		.all();
 
-	const { total, concluidas } = await contarEtapas(c.env.DB, projetoId);
+	const progressoAtual = await obterProgressoAtual(c.env.DB, projetoId);
 
-	return c.json({
-		etapas: results,
-		progresso: calcularProgresso(total, concluidas),
-		totalEtapas: total,
-		etapasConcluidas: concluidas,
-	});
+	return c.json({ etapas: results, ...progressoAtual });
 });
 
 projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
@@ -567,6 +619,17 @@ projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrado
 
 	const progresso = await sincronizarProgresso(c.env.DB, projetoId);
 
+	await registrarEvento(c.env.DB, {
+		projetoId,
+		tipo: "etapa",
+		tipoEvento: "etapa_criada",
+		entidadeTipo: "etapa",
+		entidadeId: resultado!.id,
+		titulo: `Etapa "${dados.nome}" criada`,
+		usuarioId: c.get("user")!.id,
+		visivelCliente: false,
+	});
+
 	const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(resultado!.id).first();
 
 	return c.json({ etapa, progresso }, 201);
@@ -584,9 +647,11 @@ projetos.patch(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const existente = await c.env.DB.prepare("SELECT status FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+		const existente = await c.env.DB.prepare(
+			"SELECT nome, status, data_fim_prevista FROM projeto_etapas WHERE id = ? AND projeto_id = ?",
+		)
 			.bind(etapaId, projetoId)
-			.first<{ status: string }>();
+			.first<{ nome: string; status: string; data_fim_prevista: string | null }>();
 		if (!existente) {
 			return c.json({ error: "etapa não encontrada" }, 404);
 		}
@@ -604,13 +669,18 @@ projetos.patch(
 
 		// data_conclusao é derivada da transição de status — nunca informada
 		// diretamente pelo cliente (não está no schema de entrada).
+		let eventoStatus: "etapa_concluida" | "etapa_reaberta" | null = null;
 		if (typeof dados.status === "string") {
 			if (dados.status === "concluida" && existente.status !== "concluida") {
 				dados.data_conclusao = new Date().toISOString().slice(0, 10);
+				eventoStatus = "etapa_concluida";
 			} else if (dados.status !== "concluida" && existente.status === "concluida") {
 				dados.data_conclusao = null;
+				eventoStatus = "etapa_reaberta";
 			}
 		}
+		const prazoAlterado =
+			typeof dados.data_fim_prevista !== "undefined" && dados.data_fim_prevista !== existente.data_fim_prevista;
 
 		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
 		const valores: unknown[] = [];
@@ -624,6 +694,46 @@ projetos.patch(
 			.run();
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		const atual = c.get("user")!;
+		if (eventoStatus === "etapa_concluida") {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "etapa",
+				tipoEvento: "etapa_concluida",
+				entidadeTipo: "etapa",
+				entidadeId: etapaId,
+				etapaId,
+				titulo: `Etapa "${existente.nome}" concluída`,
+				usuarioId: atual.id,
+				visivelCliente: true,
+			});
+		} else if (eventoStatus === "etapa_reaberta") {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "etapa",
+				tipoEvento: "etapa_reaberta",
+				entidadeTipo: "etapa",
+				entidadeId: etapaId,
+				etapaId,
+				titulo: `Etapa "${existente.nome}" reaberta`,
+				usuarioId: atual.id,
+				visivelCliente: false,
+			});
+		}
+		if (prazoAlterado) {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "sistema",
+				tipoEvento: "prazo_alterado",
+				entidadeTipo: "etapa",
+				entidadeId: etapaId,
+				etapaId,
+				titulo: `Prazo da etapa "${existente.nome}" alterado`,
+				usuarioId: atual.id,
+				visivelCliente: false,
+			});
+		}
 
 		const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(etapaId).first();
 
@@ -745,6 +855,326 @@ projetos.post(
 			.first();
 
 		return c.json({ atualizacao }, 201);
+	},
+);
+
+// Tarefas do projeto. Mesma régua de permissão das etapas: ver = qualquer
+// autenticado; criar/editar/mudar status/responsável/prazo = administrador,
+// gestor ou colaborador; excluir = administrador ou gestor (ação
+// estrutural, não apenas operacional do dia a dia).
+projetos.get("/:id/tarefas", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const { results } = await c.env.DB.prepare(`${SELECT_TAREFA} WHERE t.projeto_id = ? ORDER BY t.etapa_id, t.ordem, t.id`)
+		.bind(projetoId)
+		.all();
+
+	return c.json({ tarefas: results });
+});
+
+projetos.post(
+	"/:id/etapas/:etapaId/tarefas",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const etapaId = Number(c.req.param("etapaId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(etapaId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const etapa = await c.env.DB.prepare("SELECT id, nome FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+			.bind(etapaId, projetoId)
+			.first<{ id: number; nome: string }>();
+		if (!etapa) {
+			return c.json({ error: "etapa não encontrada neste projeto" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = criarTarefaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados = parsed.data;
+
+		if (dados.responsavel_id) {
+			const usuario = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(dados.responsavel_id).first();
+			if (!usuario) {
+				return c.json({ error: "responsável não encontrado" }, 400);
+			}
+		}
+
+		let ordem = dados.ordem;
+		if (ordem === undefined) {
+			const maxOrdem = await c.env.DB.prepare(
+				"SELECT COALESCE(MAX(ordem), -1) AS maximo FROM projeto_tarefas WHERE etapa_id = ?",
+			)
+				.bind(etapaId)
+				.first<{ maximo: number }>();
+			ordem = (maxOrdem?.maximo ?? -1) + 1;
+		}
+
+		const status = dados.status ?? "pendente";
+		const dataConclusao = status === "concluida" ? new Date().toISOString().slice(0, 10) : null;
+		const visivelCliente = dados.visivel_cliente === undefined ? 1 : dados.visivel_cliente ? 1 : 0;
+
+		const resultado = await c.env.DB.prepare(
+			`INSERT INTO projeto_tarefas (
+				projeto_id, etapa_id, nome, descricao, ordem, status, prioridade,
+				responsavel_id, data_inicio, prazo, data_conclusao, visivel_cliente
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 RETURNING id`,
+		)
+			.bind(
+				projetoId,
+				etapaId,
+				dados.nome,
+				dados.descricao,
+				ordem,
+				status,
+				dados.prioridade ?? "normal",
+				dados.responsavel_id ?? null,
+				dados.data_inicio,
+				dados.prazo,
+				dataConclusao,
+				visivelCliente,
+			)
+			.first<{ id: number }>();
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		await registrarEvento(c.env.DB, {
+			projetoId,
+			tipo: "etapa",
+			tipoEvento: "tarefa_criada",
+			entidadeTipo: "tarefa",
+			entidadeId: resultado!.id,
+			etapaId,
+			titulo: `Tarefa "${dados.nome}" criada em "${etapa.nome}"`,
+			usuarioId: c.get("user")!.id,
+			visivelCliente: false,
+		});
+
+		const tarefa = await c.env.DB.prepare(`${SELECT_TAREFA} WHERE t.id = ?`).bind(resultado!.id).first();
+
+		return c.json({ tarefa, progresso }, 201);
+	},
+);
+
+projetos.patch(
+	"/:id/tarefas/:tarefaId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const tarefaId = Number(c.req.param("tarefaId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(tarefaId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const existente = await c.env.DB.prepare(
+			"SELECT nome, status, prazo, responsavel_id, etapa_id FROM projeto_tarefas WHERE id = ? AND projeto_id = ?",
+		)
+			.bind(tarefaId, projetoId)
+			.first<{ nome: string; status: string; prazo: string | null; responsavel_id: number | null; etapa_id: number }>();
+		if (!existente) {
+			return c.json({ error: "tarefa não encontrada" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = patchTarefaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+
+		if (parsed.data.responsavel_id) {
+			const usuario = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(parsed.data.responsavel_id).first();
+			if (!usuario) {
+				return c.json({ error: "responsável não encontrado" }, 400);
+			}
+		}
+
+		const dados: Record<string, unknown> = { ...parsed.data };
+		if (typeof dados.visivel_cliente === "boolean") {
+			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
+		}
+
+		let eventoStatus: "tarefa_concluida" | "tarefa_reaberta" | null = null;
+		if (typeof dados.status === "string") {
+			if (dados.status === "concluida" && existente.status !== "concluida") {
+				dados.data_conclusao = new Date().toISOString().slice(0, 10);
+				eventoStatus = "tarefa_concluida";
+			} else if (dados.status !== "concluida" && existente.status === "concluida") {
+				dados.data_conclusao = null;
+				eventoStatus = "tarefa_reaberta";
+			}
+		}
+		const prazoAlterado = typeof dados.prazo !== "undefined" && dados.prazo !== existente.prazo;
+		const responsavelAlterado =
+			typeof dados.responsavel_id !== "undefined" && dados.responsavel_id !== existente.responsavel_id;
+
+		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
+		const valores: unknown[] = [];
+		for (const [campo, valor] of Object.entries(dados)) {
+			campos.push(`${campo} = ?`);
+			valores.push(valor);
+		}
+
+		await c.env.DB.prepare(`UPDATE projeto_tarefas SET ${campos.join(", ")} WHERE id = ?`)
+			.bind(...valores, tarefaId)
+			.run();
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		const atual = c.get("user")!;
+		const etapaId = existente.etapa_id;
+		if (eventoStatus === "tarefa_concluida") {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "etapa",
+				tipoEvento: "tarefa_concluida",
+				entidadeTipo: "tarefa",
+				entidadeId: tarefaId,
+				etapaId,
+				titulo: `Tarefa "${existente.nome}" concluída`,
+				usuarioId: atual.id,
+				visivelCliente: true,
+			});
+		} else if (eventoStatus === "tarefa_reaberta") {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "etapa",
+				tipoEvento: "tarefa_reaberta",
+				entidadeTipo: "tarefa",
+				entidadeId: tarefaId,
+				etapaId,
+				titulo: `Tarefa "${existente.nome}" reaberta`,
+				usuarioId: atual.id,
+				visivelCliente: false,
+			});
+		}
+		if (prazoAlterado) {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "sistema",
+				tipoEvento: "prazo_alterado",
+				entidadeTipo: "tarefa",
+				entidadeId: tarefaId,
+				etapaId,
+				titulo: `Prazo da tarefa "${existente.nome}" alterado`,
+				usuarioId: atual.id,
+				visivelCliente: false,
+			});
+		}
+		if (responsavelAlterado) {
+			await registrarEvento(c.env.DB, {
+				projetoId,
+				tipo: "sistema",
+				tipoEvento: "responsavel_alterado",
+				entidadeTipo: "tarefa",
+				entidadeId: tarefaId,
+				etapaId,
+				titulo: `Responsável da tarefa "${existente.nome}" alterado`,
+				usuarioId: atual.id,
+				visivelCliente: false,
+			});
+		}
+
+		const tarefa = await c.env.DB.prepare(`${SELECT_TAREFA} WHERE t.id = ?`).bind(tarefaId).first();
+
+		return c.json({ tarefa, progresso });
+	},
+);
+
+projetos.delete(
+	"/:id/tarefas/:tarefaId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const tarefaId = Number(c.req.param("tarefaId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(tarefaId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const resultado = await c.env.DB.prepare("DELETE FROM projeto_tarefas WHERE id = ? AND projeto_id = ?")
+			.bind(tarefaId, projetoId)
+			.run();
+
+		if (resultado.meta.changes === 0) {
+			return c.json({ error: "tarefa não encontrada" }, 404);
+		}
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		return c.json({ ok: true, progresso });
+	},
+);
+
+// "Adicionar estrutura de um Tipo de Serviço" — anexa etapas/tarefas de um
+// tipo já vinculado ao projeto (mas ainda não gerado) depois da criação.
+// Mesma régua de "criar etapa" (colaborador incluso).
+projetos.get("/:id/tipos-servico-disponiveis", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const disponiveis = await tiposServicoDisponiveisParaGerar(c.env.DB, projetoId);
+
+	return c.json({ tiposServicoDisponiveis: disponiveis });
+});
+
+projetos.post(
+	"/:id/gerar-estrutura",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		if (!Number.isInteger(projetoId) || projetoId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const projeto = await c.env.DB.prepare("SELECT id, data_inicio FROM projetos WHERE id = ?")
+			.bind(projetoId)
+			.first<{ id: number; data_inicio: string | null }>();
+		if (!projeto) {
+			return c.json({ error: "projeto não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = gerarEstruturaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+
+		const vinculado = await c.env.DB.prepare(
+			"SELECT 1 FROM projeto_tipos_servico WHERE projeto_id = ? AND tipo_servico_id = ?",
+		)
+			.bind(projetoId, parsed.data.tipo_servico_id)
+			.first();
+		if (!vinculado) {
+			return c.json({ error: "este tipo de serviço não está vinculado ao projeto" }, 400);
+		}
+
+		const resultado = await adicionarEstruturaTipoServico(c.env.DB, projetoId, parsed.data.tipo_servico_id, projeto.data_inicio);
+		if (!resultado.ok) {
+			return c.json({ error: resultado.error }, 409);
+		}
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+		const { results: etapas } = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE projeto_id = ? ORDER BY ordem, id`)
+			.bind(projetoId)
+			.all();
+
+		return c.json({ ok: true, etapasGeradas: resultado.etapasGeradas, progresso, etapas });
 	},
 );
 
