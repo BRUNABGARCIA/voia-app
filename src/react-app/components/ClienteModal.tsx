@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { Cliente } from "../lib/cliente-tipos";
+import ModalShell from "./ModalShell";
 
 interface UsuarioOpcao {
 	id: number;
@@ -158,12 +159,31 @@ export default function ClienteModal({
 	}
 
 	return (
-		<div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 p-4">
-			<div className="w-full max-w-2xl rounded-card bg-white p-(--space-card) shadow-elevated">
-				<h2 className="font-display text-xl text-voia-green-900">{editando ? "Editar cliente" : "Novo cliente"}</h2>
-
-				<form className="mt-6 space-y-6" onSubmit={handleSubmit} noValidate>
-					<section>
+		<ModalShell
+			title={editando ? "Editar cliente" : "Novo cliente"}
+			onClose={onClose}
+			onSubmit={handleSubmit}
+			footer={
+				<>
+					<button
+						type="button"
+						onClick={onClose}
+						className="rounded-control border border-voia-neutral-100 px-4 py-2 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+					>
+						Cancelar
+					</button>
+					<button
+						type="submit"
+						disabled={submitting}
+						className="rounded-control bg-voia-gold-500 px-4 py-2 text-sm font-medium text-voia-green-950 transition-colors hover:bg-voia-gold-400 disabled:opacity-(--opacity-disabled)"
+					>
+						{submitting ? "Salvando…" : editando ? "Salvar alterações" : "Criar cliente"}
+					</button>
+				</>
+			}
+		>
+			<div className="space-y-6">
+				<section>
 						<h3 className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Identificação</h3>
 						<div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							<div>
@@ -252,28 +272,10 @@ export default function ClienteModal({
 								className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 							/>
 						</div>
-					</section>
+				</section>
 
-					{error && <p className="text-sm text-voia-danger">{error}</p>}
-
-					<div className="flex justify-end gap-3 pt-2">
-						<button
-							type="button"
-							onClick={onClose}
-							className="rounded-control border border-voia-neutral-100 px-4 py-2 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
-						>
-							Cancelar
-						</button>
-						<button
-							type="submit"
-							disabled={submitting}
-							className="rounded-control bg-voia-gold-500 px-4 py-2 text-sm font-medium text-voia-green-950 transition-colors hover:bg-voia-gold-400 disabled:opacity-(--opacity-disabled)"
-						>
-							{submitting ? "Salvando…" : editando ? "Salvar alterações" : "Criar cliente"}
-						</button>
-					</div>
-				</form>
+				{error && <p className="text-sm text-voia-danger">{error}</p>}
 			</div>
-		</div>
+		</ModalShell>
 	);
 }
