@@ -1,0 +1,66 @@
+export interface ProcessoResumoPortal {
+	id: number;
+	codigo: string | null;
+	nome: string;
+	status: string;
+	progresso: number;
+	prazoPrevisto: string | null;
+	tiposServico: { id: number; nome: string }[];
+	etapaAtual: { nome: string; atrasada: boolean } | null;
+	proximoPrazo: string | null;
+}
+
+export interface EtapaPortal {
+	id: number;
+	nome: string;
+	descricao: string | null;
+	ordem: number;
+	status: string;
+	dataInicioPrevista: string | null;
+	dataFimPrevista: string | null;
+	dataConclusao: string | null;
+	atrasada: boolean;
+}
+
+export interface AtualizacaoPortal {
+	id: number;
+	titulo: string;
+	descricao: string | null;
+	tipo: string;
+	criadoEm: string;
+}
+
+export interface ProcessoDetalhePortal {
+	processo: {
+		id: number;
+		codigo: string | null;
+		nome: string;
+		status: string;
+		progresso: number;
+		totalEtapas: number;
+		etapasConcluidas: number;
+		tiposServico: { id: number; nome: string }[];
+	};
+	etapaAtual: EtapaPortal | null;
+	proximaEtapa: EtapaPortal | null;
+	etapas: EtapaPortal[];
+	atualizacoes: AtualizacaoPortal[];
+}
+
+export const STATUS_PROCESSO_LABEL: Record<string, string> = {
+	prospeccao: "Prospecção",
+	planejamento: "Planejamento",
+	em_andamento: "Em andamento",
+	aguardando_cliente: "Aguardando cliente",
+	aguardando_terceiro: "Aguardando terceiro",
+	pausado: "Pausado",
+	concluido: "Concluído",
+	cancelado: "Cancelado",
+};
+
+export function formatarDataPortal(valor: string | null): string {
+	if (!valor) return "—";
+	const data = new Date(`${valor}T00:00:00`);
+	if (Number.isNaN(data.getTime())) return "—";
+	return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}

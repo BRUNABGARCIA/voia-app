@@ -50,6 +50,7 @@ export default function AppShell() {
 						</div>
 						<nav className="mt-2 flex flex-col gap-1">
 							<SidebarLink to="/configuracoes/equipe">Equipe e Acessos</SidebarLink>
+							<SidebarLink to="/configuracoes/tipos-servico">Tipos de Serviço</SidebarLink>
 							<SidebarLink to="/configuracoes/aparencia">Aparência</SidebarLink>
 						</nav>
 					</div>
