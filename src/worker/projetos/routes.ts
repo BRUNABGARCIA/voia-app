@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
 import { contarEtapas, calcularProgresso, sincronizarProgresso } from "./progresso";
+import { gerarEtapasIniciais } from "./geracao-etapas";
 
 const STATUS = [
 	"prospeccao",
@@ -58,6 +59,16 @@ const membroSchema = z.object({
 	funcao: z.enum(FUNCOES_MEMBRO).optional().default("colaborador"),
 });
 
+const TIPO_ATUALIZACAO = ["geral", "protocolo", "pendencia", "aprovacao", "etapa", "sistema"] as const;
+
+const criarAtualizacaoSchema = z.object({
+	titulo: z.string().trim().min(1).max(200),
+	descricao: textoOpcional(2000),
+	tipo: z.enum(TIPO_ATUALIZACAO).optional(),
+	etapa_id: z.number().int().positive().optional().nullable(),
+	visivel_cliente: z.boolean().optional(),
+});
+
 const patchMembroSchema = z.object({ funcao: z.enum(FUNCOES_MEMBRO) });
 
 const STATUS_ETAPA = ["pendente", "em_andamento", "concluida"] as const;
@@ -67,8 +78,11 @@ const camposEtapa = {
 	descricao: textoOpcional(2000),
 	ordem: z.number().int().min(0).optional(),
 	status: z.enum(STATUS_ETAPA).optional(),
-	data_inicio: textoOpcional(10),
-	prazo: textoOpcional(10),
+	data_inicio_prevista: textoOpcional(10),
+	data_fim_prevista: textoOpcional(10),
+	data_inicio_real: textoOpcional(10),
+	observacao_interna: textoOpcional(2000),
+	visivel_cliente: z.boolean().optional(),
 };
 
 const criarEtapaSchema = z.object(camposEtapa);
@@ -78,8 +92,17 @@ const patchEtapaSchema = z
 	.partial()
 	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
 
-const SELECT_ETAPA =
-	"SELECT id, projeto_id, nome, descricao, ordem, status, data_inicio, prazo, data_conclusao, criado_em, atualizado_em FROM projeto_etapas";
+// "atrasada" é sempre derivada (nunca um status persistido): prazo previsto
+// vencido e etapa ainda não concluída. Calculada em SQL com date('now') para
+// não depender do relógio local do worker.
+const SELECT_ETAPA = `
+	SELECT id, projeto_id, nome, descricao, ordem, status,
+	       data_inicio_prevista, data_fim_prevista, data_inicio_real, data_conclusao,
+	       observacao_interna, visivel_cliente, peso, tipo_servico_id, modelo_etapa_id,
+	       criado_em, atualizado_em,
+	       (data_fim_prevista IS NOT NULL AND data_fim_prevista < date('now') AND status <> 'concluida') AS atrasada
+	FROM projeto_etapas
+`;
 
 /**
  * Gera o código PRJ-{ANO}-{sequencial}, reiniciado a cada ano. Um único
@@ -266,6 +289,11 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 				.bind(novoId, tipoServicoId)
 				.run();
 		}
+
+		// Copia as etapas dos modelos dos tipos de serviço selecionados para
+		// projeto_etapas — cópias independentes, o template original nunca é
+		// alterado. Tipo sem modelo configurado não gera etapas (não é erro).
+		await gerarEtapasIniciais(c.env.DB, novoId, dados.tipo_servico_ids, dados.data_inicio ?? null);
 	}
 
 	const criado = await c.env.DB.prepare(
@@ -512,13 +540,29 @@ projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrado
 
 	const status = dados.status ?? "pendente";
 	const dataConclusao = status === "concluida" ? new Date().toISOString().slice(0, 10) : null;
+	const visivelCliente = dados.visivel_cliente === undefined ? 1 : dados.visivel_cliente ? 1 : 0;
 
 	const resultado = await c.env.DB.prepare(
-		`INSERT INTO projeto_etapas (projeto_id, nome, descricao, ordem, status, data_inicio, prazo, data_conclusao)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO projeto_etapas (
+			projeto_id, nome, descricao, ordem, status,
+			data_inicio_prevista, data_fim_prevista, data_inicio_real, data_conclusao,
+			observacao_interna, visivel_cliente
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 RETURNING id`,
 	)
-		.bind(projetoId, dados.nome, dados.descricao, ordem, status, dados.data_inicio, dados.prazo, dataConclusao)
+		.bind(
+			projetoId,
+			dados.nome,
+			dados.descricao,
+			ordem,
+			status,
+			dados.data_inicio_prevista,
+			dados.data_fim_prevista,
+			dados.data_inicio_real,
+			dataConclusao,
+			dados.observacao_interna,
+			visivelCliente,
+		)
 		.first<{ id: number }>();
 
 	const progresso = await sincronizarProgresso(c.env.DB, projetoId);
@@ -553,6 +597,10 @@ projetos.patch(
 			return c.json({ error: "dados inválidos" }, 400);
 		}
 		const dados: Record<string, unknown> = { ...parsed.data };
+
+		if (typeof dados.visivel_cliente === "boolean") {
+			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
+		}
 
 		// data_conclusao é derivada da transição de status — nunca informada
 		// diretamente pelo cliente (não está no schema de entrada).
@@ -606,6 +654,97 @@ projetos.delete(
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
 
 		return c.json({ ok: true, progresso });
+	},
+);
+
+// Histórico de andamento (timeline interna do projeto). Visualizar segue a
+// mesma régua de "ver o projeto" (qualquer autenticado) — a distinção
+// interno/visível-ao-cliente é só um campo retornado, não um filtro de
+// quem pode VER a lista completa aqui dentro (o filtro real acontece do
+// lado do Portal do Cliente, em worker/portal, que só usa
+// visivel_cliente = 1). Criar segue a régua de "editar projeto".
+projetos.get("/:id/atualizacoes", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const { results } = await c.env.DB.prepare(
+		`SELECT a.id, a.projeto_id, a.etapa_id, a.titulo, a.descricao, a.tipo, a.visivel_cliente, a.criado_em,
+		        u.nome AS criado_por_nome, e.nome AS etapa_nome
+		 FROM projeto_atualizacoes a
+		 JOIN usuarios u ON u.id = a.criado_por_id
+		 LEFT JOIN projeto_etapas e ON e.id = a.etapa_id
+		 WHERE a.projeto_id = ?
+		 ORDER BY a.criado_em DESC, a.id DESC`,
+	)
+		.bind(projetoId)
+		.all();
+
+	return c.json({ atualizacoes: results });
+});
+
+projetos.post(
+	"/:id/atualizacoes",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		if (!Number.isInteger(projetoId) || projetoId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const projeto = await c.env.DB.prepare("SELECT id FROM projetos WHERE id = ?").bind(projetoId).first();
+		if (!projeto) {
+			return c.json({ error: "projeto não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = criarAtualizacaoSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados = parsed.data;
+
+		if (dados.etapa_id) {
+			const etapa = await c.env.DB.prepare("SELECT id FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+				.bind(dados.etapa_id, projetoId)
+				.first();
+			if (!etapa) {
+				return c.json({ error: "etapa não encontrada neste projeto" }, 400);
+			}
+		}
+
+		const atual = c.get("user")!;
+		const resultado = await c.env.DB.prepare(
+			`INSERT INTO projeto_atualizacoes (projeto_id, etapa_id, titulo, descricao, tipo, visivel_cliente, criado_por_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			 RETURNING id`,
+		)
+			.bind(
+				projetoId,
+				dados.etapa_id ?? null,
+				dados.titulo,
+				dados.descricao,
+				dados.tipo ?? "geral",
+				dados.visivel_cliente ? 1 : 0,
+				atual.id,
+			)
+			.first<{ id: number }>();
+
+		const atualizacao = await c.env.DB.prepare(
+			`SELECT a.id, a.projeto_id, a.etapa_id, a.titulo, a.descricao, a.tipo, a.visivel_cliente, a.criado_em,
+			        u.nome AS criado_por_nome, e.nome AS etapa_nome
+			 FROM projeto_atualizacoes a
+			 JOIN usuarios u ON u.id = a.criado_por_id
+			 LEFT JOIN projeto_etapas e ON e.id = a.etapa_id
+			 WHERE a.id = ?`,
+		)
+			.bind(resultado!.id)
+			.first();
+
+		return c.json({ atualizacao }, 201);
 	},
 );
 
