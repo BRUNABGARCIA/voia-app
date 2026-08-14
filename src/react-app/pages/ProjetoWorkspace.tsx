@@ -64,10 +64,9 @@ export default function ProjetoWorkspace() {
 		carregar();
 	}, [carregar]);
 
-	function handleSaved(atualizado: Projeto, tipoServicoIds: number[]) {
+	function handleSaved(atualizado: Projeto) {
 		setProjeto(atualizado);
-		setTiposServico((atual) => atual.filter((t) => tipoServicoIds.includes(t.id)));
-		carregar(); // recarrega tiposServico completo (nomes) após a edição
+		carregar(); // recarrega tiposServico (nomes) refletindo a edição
 		setEditando(false);
 	}
 

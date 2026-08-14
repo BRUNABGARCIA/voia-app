@@ -68,7 +68,7 @@ function campo(
 	id: keyof FormState,
 	form: FormState,
 	set: (v: string) => void,
-	opts?: { max?: number; type?: string },
+	opts?: { max?: number; type?: string; maiusculo?: boolean },
 ) {
 	return (
 		<div>
@@ -80,7 +80,7 @@ function campo(
 				type={opts?.type ?? "text"}
 				value={form[id] as string}
 				maxLength={opts?.max}
-				onChange={(e) => set(e.target.value)}
+				onChange={(e) => set(opts?.maiusculo ? e.target.value.toUpperCase() : e.target.value)}
 				className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 			/>
 		</div>
@@ -364,7 +364,7 @@ export default function ProjetoModal({
 							{campo("Complemento", "complemento", form, set("complemento"), { max: 100 })}
 							{campo("Bairro", "bairro", form, set("bairro"), { max: 100 })}
 							{campo("Cidade", "cidade", form, set("cidade"), { max: 100 })}
-							{campo("Estado (UF)", "estado", form, set("estado"), { max: 2 })}
+							{campo("Estado (UF)", "estado", form, set("estado"), { max: 2, maiusculo: true })}
 						</div>
 					</section>
 

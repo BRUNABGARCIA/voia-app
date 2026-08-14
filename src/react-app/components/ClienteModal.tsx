@@ -50,7 +50,13 @@ function clienteParaForm(cliente: Cliente | null): FormState {
 	};
 }
 
-function campo(label: string, id: keyof FormState, form: FormState, set: (v: string) => void, opts?: { max?: number }) {
+function campo(
+	label: string,
+	id: keyof FormState,
+	form: FormState,
+	set: (v: string) => void,
+	opts?: { max?: number; maiusculo?: boolean },
+) {
 	return (
 		<div>
 			<label htmlFor={id} className="block text-sm font-medium text-voia-neutral-900">
@@ -61,7 +67,7 @@ function campo(label: string, id: keyof FormState, form: FormState, set: (v: str
 				type="text"
 				value={form[id]}
 				maxLength={opts?.max}
-				onChange={(e) => set(e.target.value)}
+				onChange={(e) => set(opts?.maiusculo ? e.target.value.toUpperCase() : e.target.value)}
 				className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 			/>
 		</div>
@@ -192,7 +198,7 @@ export default function ClienteModal({
 							{campo("Complemento", "complemento", form, set("complemento"), { max: 100 })}
 							{campo("Bairro", "bairro", form, set("bairro"), { max: 100 })}
 							{campo("Cidade", "cidade", form, set("cidade"), { max: 100 })}
-							{campo("Estado (UF)", "estado", form, set("estado"), { max: 2 })}
+							{campo("Estado (UF)", "estado", form, set("estado"), { max: 2, maiusculo: true })}
 						</div>
 					</section>
 
