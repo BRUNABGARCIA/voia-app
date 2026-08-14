@@ -4,6 +4,7 @@ import usuarios from "./usuarios/routes";
 import configuracoes from "./configuracoes/routes";
 import clientes from "./clientes/routes";
 import projetos from "./projetos/routes";
+import dashboard from "./dashboard/routes";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -12,6 +13,7 @@ app.route("/api/usuarios", usuarios);
 app.route("/api/configuracoes", configuracoes);
 app.route("/api/clientes", clientes);
 app.route("/api/projetos", projetos);
+app.route("/api/dashboard", dashboard);
 
 app.get("/api/health", async (c) => {
 	const timestamp = new Date().toISOString();
