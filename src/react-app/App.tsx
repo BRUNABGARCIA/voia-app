@@ -11,6 +11,8 @@ import EquipeAcessos from "./pages/EquipeAcessos";
 import Aparencia from "./pages/Aparencia";
 import Clientes from "./pages/Clientes";
 import ClienteWorkspace from "./pages/ClienteWorkspace";
+import Projetos from "./pages/Projetos";
+import ProjetoWorkspace from "./pages/ProjetoWorkspace";
 
 function App() {
 	return (
@@ -26,6 +28,8 @@ function App() {
 
 							<Route path="clientes" element={<Clientes />} />
 							<Route path="clientes/:id" element={<ClienteWorkspace />} />
+							<Route path="projetos" element={<Projetos />} />
+							<Route path="projetos/:id" element={<ProjetoWorkspace />} />
 
 							<Route element={<RequireAdmin />}>
 								<Route path="configuracoes/equipe" element={<EquipeAcessos />} />
