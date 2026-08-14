@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { verifyPassword } from "../auth/hash";
-import { contarEtapas, calcularProgresso } from "../projetos/progresso";
+import { obterProgressoAtual } from "../projetos/progresso";
 import {
 	createPortalSession,
 	destroyPortalSession,
@@ -136,11 +136,11 @@ portal.get("/processos/:id", withPortalSession, requirePortalAuth, async (c) => 
 		return c.json({ error: "processo não encontrado" }, 404);
 	}
 
-	const [tiposServico, etapas, atualizacoes, contadores] = await Promise.all([
+	const [tiposServico, etapas, atualizacoes, progressoAtual] = await Promise.all([
 		buscarTiposServico(c.env.DB, projetoId),
 		buscarEtapasPublicas(c.env.DB, projetoId),
 		buscarAtualizacoesPublicas(c.env.DB, projetoId),
-		contarEtapas(c.env.DB, projetoId),
+		obterProgressoAtual(c.env.DB, projetoId),
 	]);
 
 	const { atual, proxima } = etapaAtualEProxima(etapas);
@@ -149,9 +149,12 @@ portal.get("/processos/:id", withPortalSession, requirePortalAuth, async (c) => 
 		processo: {
 			...processo,
 			tiposServico,
-			progresso: calcularProgresso(contadores.total, contadores.concluidas),
-			totalEtapas: contadores.total,
-			etapasConcluidas: contadores.concluidas,
+			progresso: progressoAtual.progresso,
+			baseadoEm: progressoAtual.baseadoEm,
+			totalEtapas: progressoAtual.totalEtapas,
+			etapasConcluidas: progressoAtual.etapasConcluidas,
+			totalTarefas: progressoAtual.totalTarefas,
+			tarefasConcluidas: progressoAtual.tarefasConcluidas,
 		},
 		etapaAtual: atual,
 		proximaEtapa: proxima,

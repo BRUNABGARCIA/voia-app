@@ -13,6 +13,16 @@ export interface ProcessoResumo {
 	prazoPrevisto: string | null;
 }
 
+export interface TarefaPublica {
+	id: number;
+	nome: string;
+	descricao: string | null;
+	status: string;
+	prazo: string | null;
+	dataConclusao: string | null;
+	atrasada: boolean;
+}
+
 export interface EtapaPublica {
 	id: number;
 	nome: string;
@@ -23,6 +33,7 @@ export interface EtapaPublica {
 	dataFimPrevista: string | null;
 	dataConclusao: string | null;
 	atrasada: boolean;
+	tarefas: TarefaPublica[];
 }
 
 export interface AtualizacaoPublica {
@@ -87,9 +98,34 @@ export async function buscarEtapasPublicas(db: D1Database, projetoId: number): P
 			 ORDER BY ordem, id`,
 		)
 		.bind(projetoId)
-		.all<EtapaPublica>();
+		.all<Omit<EtapaPublica, "tarefas">>();
 
-	return results.map((e) => ({ ...e, atrasada: Boolean(e.atrasada) }));
+	const etapas = results.map((e) => ({ ...e, atrasada: Boolean(e.atrasada), tarefas: [] as TarefaPublica[] }));
+	if (etapas.length === 0) return etapas;
+
+	// Tarefas de todas as etapas visíveis em uma única query (evita N+1),
+	// só as com visivel_cliente = 1 — o mesmo filtro de segurança das etapas.
+	const placeholders = etapas.map(() => "?").join(", ");
+	const { results: tarefas } = await db
+		.prepare(
+			`SELECT id, etapa_id AS etapaId, nome, descricao, status, prazo,
+			        data_conclusao AS dataConclusao,
+			        (status NOT IN ('concluida', 'cancelada') AND prazo IS NOT NULL AND prazo < date('now')) AS atrasada
+			 FROM projeto_tarefas
+			 WHERE etapa_id IN (${placeholders}) AND visivel_cliente = 1
+			 ORDER BY ordem, id`,
+		)
+		.bind(...etapas.map((e) => e.id))
+		.all<TarefaPublica & { etapaId: number }>();
+
+	const porEtapa = new Map<number, TarefaPublica[]>();
+	for (const { etapaId, ...tarefa } of tarefas) {
+		const lista = porEtapa.get(etapaId) ?? [];
+		lista.push({ ...tarefa, atrasada: Boolean(tarefa.atrasada) });
+		porEtapa.set(etapaId, lista);
+	}
+
+	return etapas.map((etapa) => ({ ...etapa, tarefas: porEtapa.get(etapa.id) ?? [] }));
 }
 
 /** Etapa atual = primeira etapa visível não concluída, na ordem. Próxima = a seguinte a ela. */
