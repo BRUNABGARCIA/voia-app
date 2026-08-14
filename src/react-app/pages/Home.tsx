@@ -2,10 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import {
+	PRIORIDADE_BADGE,
+	PRIORIDADE_LABEL,
 	STATUS_PROJETO_BADGE,
 	STATUS_PROJETO_LABEL,
+	STATUS_TAREFA_BADGE,
+	STATUS_TAREFA_LABEL,
 	formatarData,
+	type PrioridadeProjeto,
 	type StatusProjeto,
+	type StatusTarefa,
 } from "../lib/projeto-tipos";
 
 interface ProjetoResumo {
@@ -19,6 +25,17 @@ interface ProjetoResumo {
 	gerente_nome: string | null;
 }
 
+interface MinhaTarefa {
+	id: number;
+	nome: string;
+	status: StatusTarefa;
+	prioridade: PrioridadeProjeto;
+	prazo: string | null;
+	projeto_id: number;
+	projeto_nome: string;
+	atrasada: number;
+}
+
 interface DashboardResumo {
 	clientesAtivos: number;
 	projetosEmAndamento: number;
@@ -27,6 +44,9 @@ interface DashboardResumo {
 	projetosPorStatus: { status: StatusProjeto; total: number }[];
 	proximosPrazos: ProjetoResumo[];
 	projetosRecentes: ProjetoResumo[];
+	tarefasAtrasadas: number;
+	tarefasHoje: number;
+	minhasProximasTarefas: MinhaTarefa[];
 }
 
 function KpiTile({ label, valor, destaque }: { label: string; valor: number; destaque?: boolean }) {
@@ -77,11 +97,51 @@ export default function Home() {
 
 			{resumo && (
 				<>
-					<div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+					<div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
 						<KpiTile label="Clientes ativos" valor={resumo.clientesAtivos} />
 						<KpiTile label="Projetos em andamento" valor={resumo.projetosEmAndamento} />
 						<KpiTile label="Projetos atrasados" valor={resumo.projetosAtrasados} destaque={resumo.projetosAtrasados > 0} />
 						<KpiTile label="Projetos concluídos" valor={resumo.projetosConcluidos} />
+						<KpiTile label="Tarefas atrasadas" valor={resumo.tarefasAtrasadas} destaque={resumo.tarefasAtrasadas > 0} />
+						<KpiTile label="Tarefas para hoje" valor={resumo.tarefasHoje} />
+					</div>
+
+					<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+						<h2 className="font-display text-lg text-voia-green-900">Minhas próximas tarefas</h2>
+						{resumo.minhasProximasTarefas.length === 0 ? (
+							<p className="mt-3 text-sm text-voia-neutral-500">Nenhuma tarefa pendente atribuída a você.</p>
+						) : (
+							<ul className="mt-3 space-y-2">
+								{resumo.minhasProximasTarefas.map((tarefa) => (
+									<li key={tarefa.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+										<div>
+											<Link
+												to={`/projetos/${tarefa.projeto_id}`}
+												className="font-medium text-voia-green-800 hover:underline"
+											>
+												{tarefa.nome}
+											</Link>
+											<span className="ml-2 text-xs text-voia-neutral-500">{tarefa.projeto_nome}</span>
+										</div>
+										<div className="flex items-center gap-2">
+											<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${PRIORIDADE_BADGE[tarefa.prioridade]}`}>
+												{PRIORIDADE_LABEL[tarefa.prioridade]}
+											</span>
+											{tarefa.atrasada ? (
+												<span className="rounded-control bg-voia-danger/15 px-2 py-0.5 text-xs font-medium text-voia-danger">
+													Atrasada
+												</span>
+											) : (
+												<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_TAREFA_BADGE[tarefa.status]}`}>
+													{STATUS_TAREFA_LABEL[tarefa.status]}
+												</span>
+											)}
+											<span className="text-xs text-voia-neutral-500">{formatarData(tarefa.prazo)}</span>
+										</div>
+									</li>
+								))}
+							</ul>
+						)}
 					</div>
 
 					<div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
