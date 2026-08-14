@@ -8,6 +8,7 @@ interface FormState {
 	prazo_dias: string;
 	visivel_cliente: boolean;
 	notificar_cliente: boolean;
+	ativa: boolean;
 }
 
 function modeloParaForm(modelo: EtapaModelo | null): FormState {
@@ -17,6 +18,7 @@ function modeloParaForm(modelo: EtapaModelo | null): FormState {
 		prazo_dias: modelo?.prazo_dias != null ? String(modelo.prazo_dias) : "",
 		visivel_cliente: modelo ? modelo.visivel_cliente === 1 : true,
 		notificar_cliente: modelo ? modelo.notificar_cliente === 1 : false,
+		ativa: modelo ? modelo.ativa === 1 : true,
 	};
 }
 
@@ -67,6 +69,7 @@ export default function EtapaModeloModal({
 				prazo_dias: prazoDias,
 				visivel_cliente: form.visivel_cliente,
 				notificar_cliente: form.notificar_cliente,
+				ativa: form.ativa,
 			};
 
 			const url = editando
@@ -179,6 +182,18 @@ export default function EtapaModeloModal({
 				</label>
 				<p className="text-xs text-voia-neutral-500">
 					Nenhuma notificação é enviada nesta versão — a opção só prepara a estrutura para o envio futuro.
+				</p>
+				<label className="flex items-center gap-2 text-sm font-medium text-voia-neutral-900">
+					<input
+						type="checkbox"
+						checked={form.ativa}
+						onChange={(e) => set("ativa")(e.target.checked)}
+						className="h-4 w-4 rounded border-voia-neutral-100 text-voia-gold-500 focus:ring-voia-gold-500"
+					/>
+					Ativa
+				</label>
+				<p className="text-xs text-voia-neutral-500">
+					Uma etapa inativa continua no cadastro, mas não é copiada na próxima geração automática de projetos.
 				</p>
 
 				{error && <p className="text-sm text-voia-danger">{error}</p>}
