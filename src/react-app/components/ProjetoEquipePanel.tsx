@@ -101,12 +101,12 @@ export default function ProjetoEquipePanel({
 
 	return (
 		<div className="mt-6 space-y-6">
-			<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+			<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 				<h2 className="font-display text-lg text-voia-green-900">Responsável principal</h2>
 				<p className="mt-2 text-sm text-voia-neutral-900">{gerenteNome ?? "Nenhum responsável definido"}</p>
 			</div>
 
-			<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+			<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 				<div className="flex items-center justify-between">
 					<h2 className="font-display text-lg text-voia-green-900">Membros</h2>
 					{podeGerenciar && !adicionando && (
@@ -168,7 +168,7 @@ export default function ProjetoEquipePanel({
 						<button
 							type="button"
 							onClick={() => setAdicionando(false)}
-							className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-white"
+							className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-(--color-surface)"
 						>
 							Cancelar
 						</button>

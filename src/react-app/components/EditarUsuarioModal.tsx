@@ -58,7 +58,7 @@ export default function EditarUsuarioModal({
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-			<div className="w-full max-w-md rounded-card bg-white p-(--space-card) shadow-elevated">
+			<div className="w-full max-w-md rounded-card bg-(--color-surface) p-(--space-card) shadow-elevated">
 				<h2 className="font-display text-xl text-voia-green-900">Editar usuário</h2>
 
 				<form className="mt-6 space-y-4" onSubmit={handleSubmit} noValidate>

@@ -146,7 +146,7 @@ export default function ImageEditorModal({ file, aspectMode, onCancel, onConfirm
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-			<div className="w-full max-w-lg rounded-card bg-white p-(--space-card) shadow-card">
+			<div className="w-full max-w-lg rounded-card bg-(--color-surface) p-(--space-card) shadow-card">
 				<h2 className="font-display text-lg text-voia-green-900">
 					{aspectMode === "logo" ? "Ajustar logo" : "Ajustar ícone"}
 				</h2>

@@ -31,7 +31,7 @@ interface DashboardResumo {
 
 function KpiTile({ label, valor, destaque }: { label: string; valor: number; destaque?: boolean }) {
 	return (
-		<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+		<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 			<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">{label}</span>
 			<span className={`mt-1 block font-display text-3xl font-light ${destaque ? "text-voia-danger" : "text-voia-green-900"}`}>
 				{valor}
@@ -85,7 +85,7 @@ export default function Home() {
 					</div>
 
 					<div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-						<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 							<h2 className="font-display text-lg text-voia-green-900">Projetos por status</h2>
 							{resumo.projetosPorStatus.length === 0 ? (
 								<p className="mt-3 text-sm text-voia-neutral-500">Nenhum projeto cadastrado ainda.</p>
@@ -103,7 +103,7 @@ export default function Home() {
 							)}
 						</div>
 
-						<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 							<h2 className="font-display text-lg text-voia-green-900">Próximos prazos</h2>
 							{resumo.proximosPrazos.length === 0 ? (
 								<p className="mt-3 text-sm text-voia-neutral-500">Nenhum prazo pendente.</p>
@@ -130,7 +130,7 @@ export default function Home() {
 						{resumo.projetosRecentes.length === 0 ? (
 							<p className="mt-3 text-sm text-voia-neutral-500">Nenhum projeto cadastrado ainda.</p>
 						) : (
-							<div className="mt-3 overflow-x-auto rounded-card border border-voia-neutral-100 bg-white shadow-card">
+							<div className="mt-3 overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
 								<table className="w-full min-w-[640px] text-left text-sm">
 									<thead>
 										<tr className="border-b border-voia-neutral-100 text-xs uppercase tracking-wide text-voia-neutral-500">

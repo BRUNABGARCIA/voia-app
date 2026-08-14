@@ -98,7 +98,7 @@ export default function EquipeAcessos() {
 			{!error && !usuarios && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
 
 			{usuarios && (
-				<div className="mt-6 overflow-x-auto rounded-card border border-voia-neutral-100 bg-white shadow-card">
+				<div className="mt-6 overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
 					<table className="w-full min-w-[720px] text-left text-sm">
 						<thead>
 							<tr className="border-b border-voia-neutral-100 text-xs uppercase tracking-wide text-voia-neutral-500">

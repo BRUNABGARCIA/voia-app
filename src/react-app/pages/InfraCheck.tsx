@@ -70,7 +70,7 @@ export default function InfraCheck() {
 
 	return (
 		<main className="flex min-h-screen items-center justify-center p-(--space-page)">
-			<div className="w-full max-w-md rounded-card bg-white p-(--space-card) shadow-card">
+			<div className="w-full max-w-md rounded-card bg-(--color-surface) p-(--space-card) shadow-card">
 				<h1 className="font-display text-2xl text-voia-green-900">VOIA</h1>
 				<p className="mt-1 text-sm text-voia-neutral-700">
 					Verificação de infraestrutura — Etapa A (fundação)

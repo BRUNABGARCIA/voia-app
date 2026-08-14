@@ -57,7 +57,7 @@ export default function AppShell() {
 			</aside>
 
 			<div className="flex flex-1 flex-col">
-				<header className="flex items-center justify-between border-b border-voia-neutral-100 bg-white px-6 py-4">
+				<header className="flex items-center justify-between border-b border-voia-neutral-100 bg-(--color-surface) px-6 py-4">
 					<div />
 					<div className="flex items-center gap-4">
 						<div className="text-right">
