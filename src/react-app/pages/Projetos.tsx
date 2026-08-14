@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import ProjetoModal from "../components/ProjetoModal";
+import ProgressoBar from "../components/ProgressoBar";
 import {
 	PRIORIDADE_BADGE,
 	PRIORIDADE_LABEL,
@@ -174,8 +175,8 @@ export default function Projetos() {
 			)}
 
 			{projetos && projetos.length > 0 && (
-				<div className="mt-6 overflow-x-auto rounded-card border border-voia-neutral-100 bg-white shadow-card">
-					<table className="w-full min-w-[900px] text-left text-sm">
+				<div className="mt-6 overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
+					<table className="w-full min-w-[980px] text-left text-sm">
 						<thead>
 							<tr className="border-b border-voia-neutral-100 text-xs uppercase tracking-wide text-voia-neutral-500">
 								<th className="px-4 py-3 font-medium">Código</th>
@@ -183,6 +184,7 @@ export default function Projetos() {
 								<th className="px-4 py-3 font-medium">Cliente</th>
 								<th className="px-4 py-3 font-medium">Status</th>
 								<th className="px-4 py-3 font-medium">Prioridade</th>
+								<th className="px-4 py-3 font-medium">Progresso</th>
 								<th className="px-4 py-3 font-medium">Responsável</th>
 								<th className="px-4 py-3 font-medium">Prazo</th>
 							</tr>
@@ -210,6 +212,14 @@ export default function Projetos() {
 										>
 											{PRIORIDADE_LABEL[projeto.prioridade]}
 										</span>
+									</td>
+									<td className="px-4 py-3">
+										<div className="flex items-center gap-2">
+											<div className="w-16">
+												<ProgressoBar valor={projeto.progresso} compacta />
+											</div>
+											<span className="text-xs text-voia-neutral-700">{projeto.progresso}%</span>
+										</div>
 									</td>
 									<td className="px-4 py-3 text-voia-neutral-700">{projeto.gerente_nome ?? "—"}</td>
 									<td className="px-4 py-3 text-voia-neutral-700">

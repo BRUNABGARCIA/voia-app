@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import ClienteModal from "../components/ClienteModal";
 import Tabs from "../components/Tabs";
+import ProgressoBar from "../components/ProgressoBar";
 import { STATUS_BADGE, STATUS_LABEL, TIPO_LABEL, type Cliente, type ProjetoDoCliente } from "../lib/cliente-tipos";
 
 const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
@@ -119,7 +120,7 @@ export default function ClienteWorkspace() {
 
 			{aba === "visao-geral" && (
 				<div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Identificação</h2>
 						<div className="mt-4 grid grid-cols-2 gap-4">
 							{linha("CPF/CNPJ", cliente.documento)}
@@ -129,7 +130,7 @@ export default function ClienteWorkspace() {
 						</div>
 					</div>
 
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Endereço</h2>
 						<div className="mt-4 grid grid-cols-2 gap-4">
 							{linha("Endereço", endereco)}
@@ -138,7 +139,7 @@ export default function ClienteWorkspace() {
 						</div>
 					</div>
 
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card sm:col-span-2">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:col-span-2">
 						<h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
 						<div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
 							{linha("Origem", cliente.origem)}
@@ -161,7 +162,7 @@ export default function ClienteWorkspace() {
 					{projetos.length === 0 ? (
 						<p className="text-sm text-voia-neutral-500">Nenhum projeto vinculado a este cliente ainda.</p>
 					) : (
-						<div className="overflow-x-auto rounded-card border border-voia-neutral-100 bg-white shadow-card">
+						<div className="overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
 							<table className="w-full min-w-[640px] text-left text-sm">
 								<thead>
 									<tr className="border-b border-voia-neutral-100 text-xs uppercase tracking-wide text-voia-neutral-500">
@@ -180,7 +181,14 @@ export default function ClienteWorkspace() {
 											<td className="px-4 py-3 text-voia-neutral-700">
 												{PROJETO_STATUS_LABEL[projeto.status] ?? projeto.status}
 											</td>
-											<td className="px-4 py-3 text-voia-neutral-700">{projeto.progresso}%</td>
+											<td className="px-4 py-3">
+											<div className="flex items-center gap-2">
+												<div className="w-16">
+													<ProgressoBar valor={projeto.progresso} compacta />
+												</div>
+												<span className="text-xs text-voia-neutral-700">{projeto.progresso}%</span>
+											</div>
+										</td>
 											<td className="px-4 py-3 text-voia-neutral-700">{projeto.gerente_nome ?? "—"}</td>
 										</tr>
 									))}

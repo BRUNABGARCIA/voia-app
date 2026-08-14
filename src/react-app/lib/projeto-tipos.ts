@@ -39,6 +39,36 @@ export interface MembroProjeto {
 	email: string;
 }
 
+export type StatusEtapa = "pendente" | "em_andamento" | "concluida";
+
+export interface Etapa {
+	id: number;
+	projeto_id: number;
+	nome: string;
+	descricao: string | null;
+	ordem: number;
+	status: StatusEtapa;
+	data_inicio: string | null;
+	prazo: string | null;
+	data_conclusao: string | null;
+	criado_em: string;
+	atualizado_em: string;
+}
+
+export const STATUS_ETAPA: StatusEtapa[] = ["pendente", "em_andamento", "concluida"];
+
+export const STATUS_ETAPA_LABEL: Record<StatusEtapa, string> = {
+	pendente: "Pendente",
+	em_andamento: "Em andamento",
+	concluida: "Concluída",
+};
+
+export const STATUS_ETAPA_BADGE: Record<StatusEtapa, string> = {
+	pendente: "bg-voia-neutral-100 text-voia-neutral-500",
+	em_andamento: "bg-voia-info/15 text-voia-info",
+	concluida: "bg-voia-success/15 text-voia-success",
+};
+
 export type StatusProjeto =
 	| "prospeccao"
 	| "planejamento"

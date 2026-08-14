@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
+import EtapasPanel from "../components/EtapasPanel";
+import ProgressoBar from "../components/ProgressoBar";
 import Tabs from "../components/Tabs";
 import {
 	PRIORIDADE_BADGE,
@@ -18,9 +20,11 @@ import {
 
 const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
 const PERFIS_QUE_GERENCIAM_EQUIPE = ["administrador", "gestor"];
+const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
+	{ key: "etapas", label: "Etapas" },
 	{ key: "equipe", label: "Equipe" },
 ];
 
@@ -46,6 +50,7 @@ export default function ProjetoWorkspace() {
 
 	const podeEditar = user ? PERFIS_QUE_EDITAM.includes(user.perfil) : false;
 	const podeGerenciarEquipe = user ? PERFIS_QUE_GERENCIAM_EQUIPE.includes(user.perfil) : false;
+	const podeExcluirEtapa = user ? PERFIS_QUE_EXCLUEM_ETAPA.includes(user.perfil) : false;
 
 	const carregar = useCallback(() => {
 		fetch(`/api/projetos/${id}`, { credentials: "same-origin" })
@@ -68,6 +73,13 @@ export default function ProjetoWorkspace() {
 		setProjeto(atualizado);
 		carregar(); // recarrega tiposServico (nomes) refletindo a edição
 		setEditando(false);
+	}
+
+	// Etapas é quem manda no progresso — quando a aba Etapas recalcula (criar,
+	// editar, mudar status, excluir etapa), reflete aqui sem precisar recarregar
+	// o projeto inteiro.
+	function handleProgressoChange(progresso: number) {
+		setProjeto((atual) => (atual ? { ...atual, progresso } : atual));
 	}
 
 	if (error) {
@@ -133,20 +145,17 @@ export default function ProjetoWorkspace() {
 
 			{aba === "visao-geral" && (
 				<div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card sm:col-span-2">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:col-span-2">
 						<div className="flex items-center justify-between">
 							<span className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Progresso</span>
 							<span className="text-sm font-medium text-voia-neutral-900">{projeto.progresso}%</span>
 						</div>
-						<div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-voia-neutral-100">
-							<div
-								className="h-full rounded-full bg-voia-gold-500 transition-all"
-								style={{ width: `${projeto.progresso}%` }}
-							/>
+						<div className="mt-2">
+							<ProgressoBar valor={projeto.progresso} />
 						</div>
 					</div>
 
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
 						<div className="mt-4 grid grid-cols-2 gap-4">
 							{linha("Responsável", projeto.gerente_nome)}
@@ -183,7 +192,7 @@ export default function ProjetoWorkspace() {
 						)}
 					</div>
 
-					<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card">
+					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Endereço da obra</h2>
 						<div className="mt-4 grid grid-cols-2 gap-4">
 							{linha("Endereço", endereco)}
@@ -193,7 +202,7 @@ export default function ProjetoWorkspace() {
 					</div>
 
 					{(projeto.descricao || projeto.observacoes) && (
-						<div className="rounded-card border border-voia-neutral-100 bg-white p-(--space-card) shadow-card sm:col-span-2">
+						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:col-span-2">
 							{projeto.descricao && (
 								<div>
 									<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">
@@ -213,6 +222,15 @@ export default function ProjetoWorkspace() {
 						</div>
 					)}
 				</div>
+			)}
+
+			{aba === "etapas" && (
+				<EtapasPanel
+					projetoId={projeto.id}
+					podeEditar={podeEditar}
+					podeExcluir={podeExcluirEtapa}
+					onProgressoChange={handleProgressoChange}
+				/>
 			)}
 
 			{aba === "equipe" && (
