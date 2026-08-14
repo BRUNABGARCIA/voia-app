@@ -24,6 +24,10 @@ export interface Projeto {
 	observacoes: string | null;
 	criado_em: string;
 	atualizado_em: string;
+	// Derivado no backend (worker/projetos/atraso.ts): prazo do projeto
+	// vencido OU alguma etapa/tarefa dele atrasada — nunca recalculado
+	// no frontend, para nunca divergir do Dashboard.
+	atrasado: number;
 }
 
 export interface TipoServico {
@@ -59,9 +63,53 @@ export interface Etapa {
 	modelo_etapa_id: number | null;
 	criado_em: string;
 	atualizado_em: string;
-	// (data_fim_prevista vencida e status <> concluida) — calculado no backend.
+	// (data_fim_prevista vencida OU tarefa da etapa atrasada) — calculado no backend.
+	atrasada: number;
+	// Exclui tarefas canceladas (mesma régua do denominador do progresso).
+	tarefas_total: number;
+	tarefas_concluidas: number;
+}
+
+export type StatusTarefa = "pendente" | "em_andamento" | "aguardando" | "concluida" | "cancelada";
+
+export interface Tarefa {
+	id: number;
+	projeto_id: number;
+	etapa_id: number;
+	nome: string;
+	descricao: string | null;
+	ordem: number;
+	status: StatusTarefa;
+	prioridade: PrioridadeProjeto;
+	responsavel_id: number | null;
+	responsavel_nome: string | null;
+	data_inicio: string | null;
+	prazo: string | null;
+	data_conclusao: string | null;
+	visivel_cliente: number;
+	origem_modelo_id: number | null;
+	criado_em: string;
+	atualizado_em: string;
 	atrasada: number;
 }
+
+export const STATUS_TAREFA: StatusTarefa[] = ["pendente", "em_andamento", "aguardando", "concluida", "cancelada"];
+
+export const STATUS_TAREFA_LABEL: Record<StatusTarefa, string> = {
+	pendente: "Pendente",
+	em_andamento: "Em andamento",
+	aguardando: "Aguardando",
+	concluida: "Concluída",
+	cancelada: "Cancelada",
+};
+
+export const STATUS_TAREFA_BADGE: Record<StatusTarefa, string> = {
+	pendente: "bg-voia-neutral-100 text-voia-neutral-500",
+	em_andamento: "bg-voia-info/15 text-voia-info",
+	aguardando: "bg-voia-warning/15 text-voia-warning",
+	concluida: "bg-voia-success/15 text-voia-success",
+	cancelada: "bg-voia-neutral-100 text-voia-neutral-400 line-through",
+};
 
 export type TipoAtualizacao = "geral" | "protocolo" | "pendencia" | "aprovacao" | "etapa" | "sistema";
 
@@ -191,8 +239,11 @@ export function formatarData(valor: string | null): string {
 	return data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-export function projetoAtrasado(projeto: Pick<Projeto, "prazo_previsto" | "status">): boolean {
-	if (!projeto.prazo_previsto) return false;
-	if (STATUS_FINALIZADOS.includes(projeto.status)) return false;
-	return new Date(`${projeto.prazo_previsto}T23:59:59`).getTime() < Date.now();
+/**
+ * Sempre lê o valor já calculado pelo backend (worker/projetos/atraso.ts)
+ * — nunca recalcula a regra aqui, para o frontend nunca divergir do
+ * Dashboard nem da Workspace.
+ */
+export function projetoAtrasado(projeto: Pick<Projeto, "atrasado">): boolean {
+	return Boolean(projeto.atrasado);
 }

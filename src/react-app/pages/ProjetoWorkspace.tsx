@@ -25,7 +25,7 @@ const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
-	{ key: "etapas", label: "Etapas" },
+	{ key: "etapas", label: "Etapas e Tarefas" },
 	{ key: "andamento", label: "Andamento" },
 	{ key: "equipe", label: "Equipe" },
 ];
