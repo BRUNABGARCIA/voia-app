@@ -70,7 +70,11 @@
  * sem reescrever componentes.
  */
 :root {
-	--color-bg: var(--color-voia-beige-50);
+	/* Valor literal (não mais atrelado a --color-voia-beige-50): fundo
+	 * padrão mais claro e neutro, igual ao default gravado em
+	 * configuracoes_aparencia.cor_fundo (migration 0010). Cor de
+	 * fato aplicada em runtime por BrandingContext (src/react-app/lib/tema.ts). */
+	--color-bg: #f7f7f5;
 	--color-surface: #ffffff;
 	--color-text: var(--color-voia-green-950);
 	--color-text-muted: var(--color-voia-neutral-700);

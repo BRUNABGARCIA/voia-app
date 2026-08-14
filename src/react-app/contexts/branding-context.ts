@@ -1,6 +1,7 @@
 import { createContext } from "react";
+import type { CoresTema } from "../lib/tema";
 
-export interface BrandingConfig {
+export interface BrandingConfig extends CoresTema {
 	nomeSistema: string;
 	logoUrl: string;
 	faviconUrl: string;

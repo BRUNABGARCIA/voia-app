@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { BrandingContext, type BrandingConfig } from "./branding-context";
+import { aplicarTema, CORES_PADRAO } from "../lib/tema";
 
 const DEFAULT_CONFIG: BrandingConfig = {
 	nomeSistema: "VOIA Engenharia",
@@ -7,6 +8,7 @@ const DEFAULT_CONFIG: BrandingConfig = {
 	faviconUrl: "/branding/favicon-voia.png",
 	logoEscala: 100,
 	atualizadoEm: null,
+	...CORES_PADRAO,
 };
 
 /**
@@ -62,6 +64,10 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
 		const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
 		if (link) link.href = faviconUrl;
 	}, [faviconUrl]);
+
+	useEffect(() => {
+		aplicarTema(config);
+	}, [config]);
 
 	return (
 		<BrandingContext.Provider value={{ ...config, logoUrl, faviconUrl, loading, refresh }}>
