@@ -48,12 +48,46 @@ export interface Etapa {
 	descricao: string | null;
 	ordem: number;
 	status: StatusEtapa;
-	data_inicio: string | null;
-	prazo: string | null;
+	data_inicio_prevista: string | null;
+	data_fim_prevista: string | null;
+	data_inicio_real: string | null;
 	data_conclusao: string | null;
+	observacao_interna: string | null;
+	visivel_cliente: number;
+	peso: number;
+	tipo_servico_id: number | null;
+	modelo_etapa_id: number | null;
 	criado_em: string;
 	atualizado_em: string;
+	// (data_fim_prevista vencida e status <> concluida) — calculado no backend.
+	atrasada: number;
 }
+
+export type TipoAtualizacao = "geral" | "protocolo" | "pendencia" | "aprovacao" | "etapa" | "sistema";
+
+export interface Atualizacao {
+	id: number;
+	projeto_id: number;
+	etapa_id: number | null;
+	etapa_nome: string | null;
+	titulo: string;
+	descricao: string | null;
+	tipo: TipoAtualizacao;
+	visivel_cliente: number;
+	criado_em: string;
+	criado_por_nome: string;
+}
+
+export const TIPO_ATUALIZACAO: TipoAtualizacao[] = ["geral", "protocolo", "pendencia", "aprovacao", "etapa", "sistema"];
+
+export const TIPO_ATUALIZACAO_LABEL: Record<TipoAtualizacao, string> = {
+	geral: "Geral",
+	protocolo: "Protocolo",
+	pendencia: "Pendência",
+	aprovacao: "Aprovação",
+	etapa: "Etapa",
+	sistema: "Sistema",
+};
 
 export const STATUS_ETAPA: StatusEtapa[] = ["pendente", "em_andamento", "concluida"];
 

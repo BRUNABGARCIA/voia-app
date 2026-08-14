@@ -356,6 +356,8 @@ export default function ProjetoModal({
 					</div>
 					<p className="mt-4 text-xs text-voia-neutral-500">
 						O progresso do projeto é calculado automaticamente a partir das etapas, na aba Etapas do projeto.
+						{!editando &&
+							" Ao criar o projeto, as etapas iniciais são copiadas automaticamente do modelo de processo de cada tipo de serviço selecionado (Configurações > Tipos de Serviço)."}
 					</p>
 				</section>
 

@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/useAuth";
 import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
 import EtapasPanel from "../components/EtapasPanel";
+import AndamentoPanel from "../components/AndamentoPanel";
 import ProgressoBar from "../components/ProgressoBar";
 import Tabs from "../components/Tabs";
 import {
@@ -25,6 +26,7 @@ const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
 	{ key: "etapas", label: "Etapas" },
+	{ key: "andamento", label: "Andamento" },
 	{ key: "equipe", label: "Equipe" },
 ];
 
@@ -232,6 +234,8 @@ export default function ProjetoWorkspace() {
 					onProgressoChange={handleProgressoChange}
 				/>
 			)}
+
+			{aba === "andamento" && <AndamentoPanel projetoId={projeto.id} podeEditar={podeEditar} />}
 
 			{aba === "equipe" && (
 				<ProjetoEquipePanel

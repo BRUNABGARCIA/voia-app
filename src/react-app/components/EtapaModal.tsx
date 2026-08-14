@@ -6,8 +6,11 @@ interface FormState {
 	nome: string;
 	descricao: string;
 	status: string;
-	data_inicio: string;
-	prazo: string;
+	data_inicio_prevista: string;
+	data_fim_prevista: string;
+	data_inicio_real: string;
+	observacao_interna: string;
+	visivel_cliente: boolean;
 }
 
 function etapaParaForm(etapa: Etapa | null): FormState {
@@ -15,8 +18,11 @@ function etapaParaForm(etapa: Etapa | null): FormState {
 		nome: etapa?.nome ?? "",
 		descricao: etapa?.descricao ?? "",
 		status: etapa?.status ?? "pendente",
-		data_inicio: etapa?.data_inicio ?? "",
-		prazo: etapa?.prazo ?? "",
+		data_inicio_prevista: etapa?.data_inicio_prevista ?? "",
+		data_fim_prevista: etapa?.data_fim_prevista ?? "",
+		data_inicio_real: etapa?.data_inicio_real ?? "",
+		observacao_interna: etapa?.observacao_interna ?? "",
+		visivel_cliente: etapa ? etapa.visivel_cliente === 1 : true,
 	};
 }
 
@@ -37,7 +43,7 @@ export default function EtapaModal({
 	const [submitting, setSubmitting] = useState(false);
 
 	function set<K extends keyof FormState>(campo: K) {
-		return (valor: string) => setForm((atual) => ({ ...atual, [campo]: valor }));
+		return (valor: FormState[K]) => setForm((atual) => ({ ...atual, [campo]: valor }));
 	}
 
 	async function handleSubmit(e: FormEvent) {
@@ -55,8 +61,11 @@ export default function EtapaModal({
 				nome: form.nome,
 				descricao: form.descricao || null,
 				status: form.status,
-				data_inicio: form.data_inicio || null,
-				prazo: form.prazo || null,
+				data_inicio_prevista: form.data_inicio_prevista || null,
+				data_fim_prevista: form.data_fim_prevista || null,
+				data_inicio_real: form.data_inicio_real || null,
+				observacao_interna: form.observacao_interna || null,
+				visivel_cliente: form.visivel_cliente,
 			};
 
 			const url = editando ? `/api/projetos/${projetoId}/etapas/${etapa.id}` : `/api/projetos/${projetoId}/etapas`;
@@ -128,7 +137,7 @@ export default function EtapaModal({
 						id="etapa-descricao"
 						value={form.descricao}
 						onChange={(e) => set("descricao")(e.target.value)}
-						rows={3}
+						rows={2}
 						className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 					/>
 				</div>
@@ -151,30 +160,67 @@ export default function EtapaModal({
 				</div>
 				<div className="grid grid-cols-2 gap-4">
 					<div>
-						<label htmlFor="etapa-inicio" className="block text-sm font-medium text-voia-neutral-900">
-							Data de início
+						<label htmlFor="etapa-inicio-previsto" className="block text-sm font-medium text-voia-neutral-900">
+							Início previsto
 						</label>
 						<input
-							id="etapa-inicio"
+							id="etapa-inicio-previsto"
 							type="date"
-							value={form.data_inicio}
-							onChange={(e) => set("data_inicio")(e.target.value)}
+							value={form.data_inicio_prevista}
+							onChange={(e) => set("data_inicio_prevista")(e.target.value)}
 							className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 						/>
 					</div>
 					<div>
-						<label htmlFor="etapa-prazo" className="block text-sm font-medium text-voia-neutral-900">
-							Prazo
+						<label htmlFor="etapa-prazo-previsto" className="block text-sm font-medium text-voia-neutral-900">
+							Prazo previsto
 						</label>
 						<input
-							id="etapa-prazo"
+							id="etapa-prazo-previsto"
 							type="date"
-							value={form.prazo}
-							onChange={(e) => set("prazo")(e.target.value)}
+							value={form.data_fim_prevista}
+							onChange={(e) => set("data_fim_prevista")(e.target.value)}
 							className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 						/>
 					</div>
 				</div>
+				<div>
+					<label htmlFor="etapa-inicio-real" className="block text-sm font-medium text-voia-neutral-900">
+						Início real
+					</label>
+					<input
+						id="etapa-inicio-real"
+						type="date"
+						value={form.data_inicio_real}
+						onChange={(e) => set("data_inicio_real")(e.target.value)}
+						className="mt-1 w-full max-w-[calc(50%-0.5rem)] rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
+					/>
+					<p className="mt-1 text-xs text-voia-neutral-500">
+						A conclusão é registrada automaticamente quando o status muda para "Concluída".
+					</p>
+				</div>
+				<div>
+					<label htmlFor="etapa-observacao" className="block text-sm font-medium text-voia-neutral-900">
+						Observação interna
+					</label>
+					<textarea
+						id="etapa-observacao"
+						value={form.observacao_interna}
+						onChange={(e) => set("observacao_interna")(e.target.value)}
+						rows={2}
+						placeholder="Visível somente para a equipe, nunca para o cliente."
+						className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
+					/>
+				</div>
+				<label className="flex items-center gap-2 text-sm font-medium text-voia-neutral-900">
+					<input
+						type="checkbox"
+						checked={form.visivel_cliente}
+						onChange={(e) => set("visivel_cliente")(e.target.checked)}
+						className="h-4 w-4 rounded border-voia-neutral-100 text-voia-gold-500 focus:ring-voia-gold-500"
+					/>
+					Visível ao cliente no Portal
+				</label>
 
 				{error && <p className="text-sm text-voia-danger">{error}</p>}
 			</div>
