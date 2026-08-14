@@ -9,11 +9,33 @@ const FALLBACK_FAVICON = "/branding/favicon-voia.png";
 const LOGO_ESCALA_MIN = 60;
 const LOGO_ESCALA_MAX = 130;
 
+const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
+
+// campo do form (snake_case) -> coluna no banco = mesmo nome; mapeado para
+// camelCase na resposta JSON (respostaConfig). Uma única lista alimenta
+// tanto a leitura/validação do PATCH quanto o SELECT.
+const CAMPOS_COR = [
+	"cor_principal",
+	"cor_destaque",
+	"cor_fundo",
+	"cor_superficie",
+	"cor_sidebar",
+	"cor_texto_principal",
+	"cor_texto_secundario",
+] as const;
+
 interface LinhaConfig {
 	nome_sistema: string;
 	tem_logo: number;
 	tem_favicon: number;
 	logo_escala: number;
+	cor_principal: string;
+	cor_destaque: string;
+	cor_fundo: string;
+	cor_superficie: string;
+	cor_sidebar: string;
+	cor_texto_principal: string;
+	cor_texto_secundario: string;
 	atualizado_em: string;
 }
 
@@ -83,12 +105,22 @@ function respostaConfig(row: LinhaConfig | null) {
 		logoUrl: row?.tem_logo ? "/api/configuracoes/logo" : FALLBACK_LOGO,
 		faviconUrl: row?.tem_favicon ? "/api/configuracoes/favicon" : FALLBACK_FAVICON,
 		logoEscala: row?.logo_escala ?? 100,
+		corPrincipal: row?.cor_principal ?? "#124435",
+		corDestaque: row?.cor_destaque ?? "#F7C94A",
+		corFundo: row?.cor_fundo ?? "#F7F7F5",
+		corSuperficie: row?.cor_superficie ?? "#FFFFFF",
+		corSidebar: row?.cor_sidebar ?? "#000000",
+		corTextoPrincipal: row?.cor_texto_principal ?? "#1B1F1C",
+		corTextoSecundario: row?.cor_texto_secundario ?? "#3D443F",
 		atualizadoEm: row?.atualizado_em ?? null,
 	};
 }
 
-const SELECT_CONFIG =
-	"SELECT nome_sistema, logo_blob IS NOT NULL AS tem_logo, favicon_blob IS NOT NULL AS tem_favicon, logo_escala, atualizado_em FROM configuracoes_aparencia WHERE id = 1";
+const SELECT_CONFIG = `
+	SELECT nome_sistema, logo_blob IS NOT NULL AS tem_logo, favicon_blob IS NOT NULL AS tem_favicon, logo_escala,
+	       ${CAMPOS_COR.join(", ")}, atualizado_em
+	FROM configuracoes_aparencia WHERE id = 1
+`;
 
 const configuracoes = new Hono<AuthEnv>();
 
@@ -150,6 +182,16 @@ configuracoes.patch("/", withSession, requireAuth, requireRole("administrador"),
 		}
 	}
 
+	const cores: Partial<Record<(typeof CAMPOS_COR)[number], string>> = {};
+	for (const campo of CAMPOS_COR) {
+		const bruto = body[campo];
+		if (typeof bruto !== "string" || bruto.length === 0) continue;
+		if (!HEX_REGEX.test(bruto)) {
+			return c.json({ error: `cor inválida em "${campo}" (use o formato #rrggbb)` }, 400);
+		}
+		cores[campo] = bruto.toUpperCase();
+	}
+
 	const logoFile = body["logo"];
 	const faviconFile = body["favicon"];
 
@@ -186,6 +228,10 @@ configuracoes.patch("/", withSession, requireAuth, requireRole("administrador"),
 	if (logoEscala !== undefined) {
 		campos.push("logo_escala = ?");
 		valores.push(logoEscala);
+	}
+	for (const [campo, valor] of Object.entries(cores)) {
+		campos.push(`${campo} = ?`);
+		valores.push(valor);
 	}
 
 	await c.env.DB.prepare(`UPDATE configuracoes_aparencia SET ${campos.join(", ")} WHERE id = 1`)
