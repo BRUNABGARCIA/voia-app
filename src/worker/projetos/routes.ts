@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
+import { contarEtapas, calcularProgresso, sincronizarProgresso } from "./progresso";
 
 const STATUS = [
 	"prospeccao",
@@ -30,7 +31,6 @@ const camposProjeto = {
 	descricao: textoOpcional(2000),
 	status: z.enum(STATUS).optional(),
 	prioridade: z.enum(PRIORIDADES).optional(),
-	progresso: z.number().int().min(0).max(100).optional(),
 	valor_contratado: z.number().int().nonnegative().optional().nullable(),
 	data_inicio: textoOpcional(10),
 	prazo_previsto: textoOpcional(10),
@@ -59,6 +59,27 @@ const membroSchema = z.object({
 });
 
 const patchMembroSchema = z.object({ funcao: z.enum(FUNCOES_MEMBRO) });
+
+const STATUS_ETAPA = ["pendente", "em_andamento", "concluida"] as const;
+
+const camposEtapa = {
+	nome: z.string().trim().min(1).max(200),
+	descricao: textoOpcional(2000),
+	ordem: z.number().int().min(0).optional(),
+	status: z.enum(STATUS_ETAPA).optional(),
+	data_inicio: textoOpcional(10),
+	prazo: textoOpcional(10),
+};
+
+const criarEtapaSchema = z.object(camposEtapa);
+
+const patchEtapaSchema = z
+	.object(camposEtapa)
+	.partial()
+	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
+
+const SELECT_ETAPA =
+	"SELECT id, projeto_id, nome, descricao, ordem, status, data_inicio, prazo, data_conclusao, criado_em, atualizado_em FROM projeto_etapas";
 
 /**
  * Gera o código PRJ-{ANO}-{sequencial}, reiniciado a cada ano. Um único
@@ -204,11 +225,11 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	try {
 		const resultado = await c.env.DB.prepare(
 			`INSERT INTO projetos (
-				cliente_id, codigo, nome, descricao, status, prioridade, progresso,
+				cliente_id, codigo, nome, descricao, status, prioridade,
 				valor_contratado, data_inicio, prazo_previsto,
 				cep, logradouro, numero, complemento, bairro, cidade, estado,
 				gerente_id, criado_por_id, observacoes
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			RETURNING id`,
 		)
 			.bind(
@@ -218,7 +239,6 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 				dados.descricao,
 				dados.status ?? "planejamento",
 				dados.prioridade ?? "normal",
-				dados.progresso ?? 0,
 				dados.valor_contratado ?? null,
 				dados.data_inicio,
 				dados.prazo_previsto,
@@ -435,5 +455,158 @@ projetos.delete("/:id/membros/:usuarioId", withSession, requireAuth, requireRole
 
 	return c.json({ ok: true });
 });
+
+// Etapas do projeto — o progresso do projeto é sempre derivado delas
+// (progresso.ts), nunca informado manualmente. Ver/criar/editar segue a
+// mesma régua de "editar projeto" (colaborador incluso); excluir é mais
+// restrito (administrador/gestor), mesma régua de "gerenciar equipe" e
+// "cancelar" — ações que alteram a estrutura do projeto, não só o dia a
+// dia operacional.
+projetos.get("/:id/etapas", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const { results } = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE projeto_id = ? ORDER BY ordem, id`)
+		.bind(projetoId)
+		.all();
+
+	const { total, concluidas } = await contarEtapas(c.env.DB, projetoId);
+
+	return c.json({
+		etapas: results,
+		progresso: calcularProgresso(total, concluidas),
+		totalEtapas: total,
+		etapasConcluidas: concluidas,
+	});
+});
+
+projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const projeto = await c.env.DB.prepare("SELECT id FROM projetos WHERE id = ?").bind(projetoId).first();
+	if (!projeto) {
+		return c.json({ error: "projeto não encontrado" }, 404);
+	}
+
+	const body = await c.req.json().catch(() => null);
+	const parsed = criarEtapaSchema.safeParse(body);
+	if (!parsed.success) {
+		return c.json({ error: "dados inválidos" }, 400);
+	}
+	const dados = parsed.data;
+
+	let ordem = dados.ordem;
+	if (ordem === undefined) {
+		const maxOrdem = await c.env.DB.prepare(
+			"SELECT COALESCE(MAX(ordem), -1) AS maximo FROM projeto_etapas WHERE projeto_id = ?",
+		)
+			.bind(projetoId)
+			.first<{ maximo: number }>();
+		ordem = (maxOrdem?.maximo ?? -1) + 1;
+	}
+
+	const status = dados.status ?? "pendente";
+	const dataConclusao = status === "concluida" ? new Date().toISOString().slice(0, 10) : null;
+
+	const resultado = await c.env.DB.prepare(
+		`INSERT INTO projeto_etapas (projeto_id, nome, descricao, ordem, status, data_inicio, prazo, data_conclusao)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 RETURNING id`,
+	)
+		.bind(projetoId, dados.nome, dados.descricao, ordem, status, dados.data_inicio, dados.prazo, dataConclusao)
+		.first<{ id: number }>();
+
+	const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+	const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(resultado!.id).first();
+
+	return c.json({ etapa, progresso }, 201);
+});
+
+projetos.patch(
+	"/:id/etapas/:etapaId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const etapaId = Number(c.req.param("etapaId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(etapaId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const existente = await c.env.DB.prepare("SELECT status FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+			.bind(etapaId, projetoId)
+			.first<{ status: string }>();
+		if (!existente) {
+			return c.json({ error: "etapa não encontrada" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = patchEtapaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados: Record<string, unknown> = { ...parsed.data };
+
+		// data_conclusao é derivada da transição de status — nunca informada
+		// diretamente pelo cliente (não está no schema de entrada).
+		if (typeof dados.status === "string") {
+			if (dados.status === "concluida" && existente.status !== "concluida") {
+				dados.data_conclusao = new Date().toISOString().slice(0, 10);
+			} else if (dados.status !== "concluida" && existente.status === "concluida") {
+				dados.data_conclusao = null;
+			}
+		}
+
+		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
+		const valores: unknown[] = [];
+		for (const [campo, valor] of Object.entries(dados)) {
+			campos.push(`${campo} = ?`);
+			valores.push(valor);
+		}
+
+		await c.env.DB.prepare(`UPDATE projeto_etapas SET ${campos.join(", ")} WHERE id = ?`)
+			.bind(...valores, etapaId)
+			.run();
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(etapaId).first();
+
+		return c.json({ etapa, progresso });
+	},
+);
+
+projetos.delete(
+	"/:id/etapas/:etapaId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const etapaId = Number(c.req.param("etapaId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(etapaId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const resultado = await c.env.DB.prepare("DELETE FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+			.bind(etapaId, projetoId)
+			.run();
+
+		if (resultado.meta.changes === 0) {
+			return c.json({ error: "etapa não encontrada" }, 404);
+		}
+
+		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
+
+		return c.json({ ok: true, progresso });
+	},
+);
 
 export default projetos;
