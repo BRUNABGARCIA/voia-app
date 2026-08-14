@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import ProgressoBar from "../components/ProgressoBar";
-import { STATUS_PROCESSO_LABEL, formatarDataPortal, type ProcessoDetalhePortal } from "../lib/portal-tipos";
+import { STATUS_PROCESSO_LABEL, formatarDataPortal, type EtapaPortal, type ProcessoDetalhePortal } from "../lib/portal-tipos";
+
+/** Símbolo amigável de andamento, sem jargão interno: ✓ concluída, ● em andamento/atrasada, ○ ainda não começou. */
+function simboloEtapa(etapa: EtapaPortal): string {
+	if (etapa.status === "concluida") return "✓";
+	if (etapa.status === "em_andamento" || etapa.atrasada) return "●";
+	return "○";
+}
 
 function formatarDataHora(valor: string): string {
 	const data = new Date(valor.replace(" ", "T") + "Z");
@@ -21,6 +28,16 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 	const [dados, setDados] = useState<ProcessoDetalhePortal | null>(null);
 	const [naoAutorizado, setNaoAutorizado] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
+
+	function alternarExpandida(etapaId: number) {
+		setExpandidas((atual) => {
+			const novo = new Set(atual);
+			if (novo.has(etapaId)) novo.delete(etapaId);
+			else novo.add(etapaId);
+			return novo;
+		});
+	}
 
 	useEffect(() => {
 		fetch(`/api/portal/processos/${id}`, { credentials: "same-origin" })
@@ -83,8 +100,9 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 						<ProgressoBar valor={processo.progresso} />
 					</div>
 					<p className="mt-2 text-sm text-voia-neutral-700">
-						{processo.etapasConcluidas} de {processo.totalEtapas}{" "}
-						{processo.totalEtapas === 1 ? "etapa concluída" : "etapas concluídas"}
+						{processo.baseadoEm === "tarefas"
+							? `${processo.tarefasConcluidas} de ${processo.totalTarefas} ${processo.totalTarefas === 1 ? "tarefa concluída" : "tarefas concluídas"}`
+							: `${processo.etapasConcluidas} de ${processo.totalEtapas} ${processo.totalEtapas === 1 ? "etapa concluída" : "etapas concluídas"}`}
 					</p>
 				</div>
 
@@ -131,32 +149,72 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 				{etapas.length === 0 ? (
 					<p className="mt-3 text-sm text-voia-neutral-500">Nenhuma etapa publicada ainda.</p>
 				) : (
-					<ul className="mt-4 space-y-3">
-						{etapas.map((etapa, idx) => (
-							<li key={etapa.id} className="rounded-control border border-voia-neutral-100 p-3">
-								<div className="flex flex-wrap items-center gap-2">
-									<span className="text-xs font-medium text-voia-neutral-500">#{idx + 1}</span>
-									<span className="font-medium text-voia-neutral-900">{etapa.nome}</span>
-									{etapa.status === "concluida" ? (
-										<span className="rounded-control bg-voia-success/15 px-2 py-0.5 text-xs font-medium text-voia-success">
-											Concluída
-										</span>
-									) : etapa.atrasada ? (
-										<span className="rounded-control bg-voia-danger/15 px-2 py-0.5 text-xs font-medium text-voia-danger">Atrasada</span>
-									) : (
-										<span className="rounded-control bg-voia-neutral-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-500">
-											{etapa.status === "em_andamento" ? "Em andamento" : "Pendente"}
-										</span>
+					<ol className="mt-4 space-y-1 border-l-2 border-voia-neutral-100 pl-4">
+						{etapas.map((etapa) => {
+							const expandida = expandidas.has(etapa.id);
+							return (
+								<li key={etapa.id} className="relative pb-4 last:pb-0">
+									<span
+										className={`absolute -left-[1.4rem] top-0.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+											etapa.status === "concluida"
+												? "bg-voia-success/15 text-voia-success"
+												: etapa.atrasada
+													? "bg-voia-danger/15 text-voia-danger"
+													: etapa.status === "em_andamento"
+														? "bg-voia-info/15 text-voia-info"
+														: "bg-voia-neutral-100 text-voia-neutral-500"
+										}`}
+									>
+										{simboloEtapa(etapa)}
+									</span>
+									<div className="flex flex-wrap items-center gap-2">
+										<span className="font-medium text-voia-neutral-900">{etapa.nome}</span>
+										{etapa.atrasada && (
+											<span className="rounded-control bg-voia-danger/15 px-2 py-0.5 text-xs font-medium text-voia-danger">
+												Atrasada
+											</span>
+										)}
+										{etapa.tarefas.length > 0 && (
+											<button
+												type="button"
+												onClick={() => alternarExpandida(etapa.id)}
+												className="text-xs font-medium text-voia-green-800 hover:underline"
+											>
+												{expandida ? "Ocultar tarefas" : `Ver tarefas (${etapa.tarefas.length})`}
+											</button>
+										)}
+									</div>
+									{etapa.descricao && <p className="mt-1 text-sm text-voia-neutral-700">{etapa.descricao}</p>}
+									<div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-voia-neutral-500">
+										{etapa.dataFimPrevista && <span>Prazo previsto: {formatarDataPortal(etapa.dataFimPrevista)}</span>}
+										{etapa.dataConclusao && <span>Concluída em: {formatarDataPortal(etapa.dataConclusao)}</span>}
+									</div>
+
+									{expandida && etapa.tarefas.length > 0 && (
+										<ul className="mt-2 space-y-1.5 rounded-control bg-voia-beige-50 p-2">
+											{etapa.tarefas.map((tarefa) => (
+												<li key={tarefa.id} className="flex flex-wrap items-center gap-2 text-xs">
+													<span
+														className={
+															tarefa.status === "concluida" ? "text-voia-neutral-500 line-through" : "text-voia-neutral-900"
+														}
+													>
+														{tarefa.status === "concluida" ? "✓" : "○"} {tarefa.nome}
+													</span>
+													{tarefa.atrasada && (
+														<span className="rounded-control bg-voia-danger/15 px-1.5 py-0.5 font-medium text-voia-danger">
+															Atrasada
+														</span>
+													)}
+													{tarefa.prazo && <span className="text-voia-neutral-500">Prazo: {formatarDataPortal(tarefa.prazo)}</span>}
+												</li>
+											))}
+										</ul>
 									)}
-								</div>
-								{etapa.descricao && <p className="mt-1 text-sm text-voia-neutral-700">{etapa.descricao}</p>}
-								<div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-voia-neutral-500">
-									{etapa.dataFimPrevista && <span>Prazo previsto: {formatarDataPortal(etapa.dataFimPrevista)}</span>}
-									{etapa.dataConclusao && <span>Concluída em: {formatarDataPortal(etapa.dataConclusao)}</span>}
-								</div>
-							</li>
-						))}
-					</ul>
+								</li>
+							);
+						})}
+					</ol>
 				)}
 			</div>
 

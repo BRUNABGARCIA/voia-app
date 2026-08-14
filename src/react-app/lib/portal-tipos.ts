@@ -10,6 +10,16 @@ export interface ProcessoResumoPortal {
 	proximoPrazo: string | null;
 }
 
+export interface TarefaPortal {
+	id: number;
+	nome: string;
+	descricao: string | null;
+	status: string;
+	prazo: string | null;
+	dataConclusao: string | null;
+	atrasada: boolean;
+}
+
 export interface EtapaPortal {
 	id: number;
 	nome: string;
@@ -20,6 +30,7 @@ export interface EtapaPortal {
 	dataFimPrevista: string | null;
 	dataConclusao: string | null;
 	atrasada: boolean;
+	tarefas: TarefaPortal[];
 }
 
 export interface AtualizacaoPortal {
@@ -37,8 +48,11 @@ export interface ProcessoDetalhePortal {
 		nome: string;
 		status: string;
 		progresso: number;
+		baseadoEm: "tarefas" | "etapas";
 		totalEtapas: number;
 		etapasConcluidas: number;
+		totalTarefas: number;
+		tarefasConcluidas: number;
 		tiposServico: { id: number; nome: string }[];
 	};
 	etapaAtual: EtapaPortal | null;
