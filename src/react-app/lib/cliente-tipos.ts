@@ -50,3 +50,23 @@ export const TIPO_LABEL: Record<Cliente["tipo"], string> = {
 	PF: "Pessoa Física",
 	PJ: "Pessoa Jurídica",
 };
+
+export interface ContatoCliente {
+	id: number;
+	cliente_id: number;
+	nome: string;
+	email: string;
+	telefone: string | null;
+	ativo: number;
+	ultimo_login_em: string | null;
+	criado_em: string;
+	atualizado_em: string;
+}
+
+export interface ProcessoAutorizavel {
+	id: number;
+	codigo: string | null;
+	nome: string;
+	status: string;
+	autorizado: number;
+}

@@ -4,13 +4,16 @@ import { useAuth } from "../contexts/useAuth";
 import ClienteModal from "../components/ClienteModal";
 import Tabs from "../components/Tabs";
 import ProgressoBar from "../components/ProgressoBar";
+import ClientePortalPanel from "../components/ClientePortalPanel";
 import { STATUS_BADGE, STATUS_LABEL, TIPO_LABEL, type Cliente, type ProjetoDoCliente } from "../lib/cliente-tipos";
 
 const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
+const PERFIS_QUE_GERENCIAM_PORTAL = ["administrador", "gestor"];
 
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
 	{ key: "projetos", label: "Projetos" },
+	{ key: "portal", label: "Portal do Cliente" },
 ];
 
 const PROJETO_STATUS_LABEL: Record<string, string> = {
@@ -45,6 +48,8 @@ export default function ClienteWorkspace() {
 	const [editando, setEditando] = useState(false);
 
 	const podeEditar = user ? PERFIS_QUE_EDITAM.includes(user.perfil) : false;
+	const podeGerenciarPortal = user ? PERFIS_QUE_GERENCIAM_PORTAL.includes(user.perfil) : false;
+	const abas = podeGerenciarPortal ? ABAS : ABAS.filter((aba) => aba.key !== "portal");
 
 	const carregar = useCallback(() => {
 		fetch(`/api/clientes/${id}`, { credentials: "same-origin" })
@@ -115,7 +120,7 @@ export default function ClienteWorkspace() {
 			</div>
 
 			<div className="mt-6">
-				<Tabs abas={ABAS} ativa={aba} onChange={setAba} />
+				<Tabs abas={abas} ativa={aba} onChange={setAba} />
 			</div>
 
 			{aba === "visao-geral" && (
@@ -198,6 +203,8 @@ export default function ClienteWorkspace() {
 					)}
 				</div>
 			)}
+
+			{aba === "portal" && podeGerenciarPortal && <ClientePortalPanel clienteId={cliente.id} />}
 
 			{editando && <ClienteModal cliente={cliente} onClose={() => setEditando(false)} onSaved={handleSaved} />}
 		</div>

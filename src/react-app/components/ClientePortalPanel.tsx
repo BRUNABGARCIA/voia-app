@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useState } from "react";
+import ContatoModal from "./ContatoModal";
+import ContatoProcessosModal from "./ContatoProcessosModal";
+import type { ContatoCliente } from "../lib/cliente-tipos";
+
+export default function ClientePortalPanel({ clienteId }: { clienteId: number }) {
+	const [contatos, setContatos] = useState<ContatoCliente[] | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [criando, setCriando] = useState(false);
+	const [editando, setEditando] = useState<ContatoCliente | null>(null);
+	const [gerenciandoProcessos, setGerenciandoProcessos] = useState<ContatoCliente | null>(null);
+
+	const carregar = useCallback(() => {
+		fetch(`/api/clientes/${clienteId}/contatos`, { credentials: "same-origin" })
+			.then((res) => {
+				if (!res.ok) throw new Error("não foi possível carregar os contatos");
+				return res.json() as Promise<{ contatos: ContatoCliente[] }>;
+			})
+			.then((data) => setContatos(data.contatos))
+			.catch(() => setError("Não foi possível carregar os acessos deste cliente."));
+	}, [clienteId]);
+
+	useEffect(() => {
+		carregar();
+	}, [carregar]);
+
+	function handleSaved() {
+		setCriando(false);
+		setEditando(null);
+		carregar();
+	}
+
+	if (error && !contatos) {
+		return <p className="mt-6 text-sm text-voia-danger">{error}</p>;
+	}
+
+	if (!contatos) {
+		return <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>;
+	}
+
+	return (
+		<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+			<div className="flex items-center justify-between">
+				<div>
+					<h2 className="font-display text-lg text-voia-green-900">Portal do Cliente</h2>
+					<p className="mt-1 text-sm text-voia-neutral-500">
+						Pessoas com acesso externo e os processos que cada uma pode acompanhar.
+					</p>
+				</div>
+				<button
+					type="button"
+					onClick={() => setCriando(true)}
+					className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+				>
+					+ Novo contato
+				</button>
+			</div>
+
+			{error && <p className="mt-3 text-sm text-voia-danger">{error}</p>}
+
+			{contatos.length === 0 ? (
+				<p className="mt-4 text-sm text-voia-neutral-500">Nenhum contato com acesso externo cadastrado ainda.</p>
+			) : (
+				<ul className="mt-4 space-y-3">
+					{contatos.map((contato) => (
+						<li key={contato.id} className="rounded-control border border-voia-neutral-100 p-3">
+							<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+								<div>
+									<div className="flex flex-wrap items-center gap-2">
+										<span className="font-medium text-voia-neutral-900">{contato.nome}</span>
+										{contato.ativo === 0 && (
+											<span className="rounded-control bg-voia-neutral-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-500">
+												Inativo
+											</span>
+										)}
+									</div>
+									<p className="text-sm text-voia-neutral-700">{contato.email}</p>
+									{contato.telefone && <p className="text-xs text-voia-neutral-500">{contato.telefone}</p>}
+								</div>
+								<div className="flex shrink-0 flex-wrap items-center gap-3">
+									<button
+										type="button"
+										onClick={() => setGerenciandoProcessos(contato)}
+										className="text-xs font-medium text-voia-green-800 hover:underline"
+									>
+										Processos autorizados
+									</button>
+									<button
+										type="button"
+										onClick={() => setEditando(contato)}
+										className="text-xs font-medium text-voia-green-800 hover:underline"
+									>
+										Editar
+									</button>
+								</div>
+							</div>
+						</li>
+					))}
+				</ul>
+			)}
+
+			{criando && <ContatoModal clienteId={clienteId} contato={null} onClose={() => setCriando(false)} onSaved={handleSaved} />}
+			{editando && (
+				<ContatoModal clienteId={clienteId} contato={editando} onClose={() => setEditando(null)} onSaved={handleSaved} />
+			)}
+			{gerenciandoProcessos && (
+				<ContatoProcessosModal
+					clienteId={clienteId}
+					contato={gerenciandoProcessos}
+					onClose={() => setGerenciandoProcessos(null)}
+					onSaved={() => setGerenciandoProcessos(null)}
+				/>
+			)}
+		</div>
+	);
+}
