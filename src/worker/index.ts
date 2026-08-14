@@ -5,6 +5,8 @@ import configuracoes from "./configuracoes/routes";
 import clientes from "./clientes/routes";
 import projetos from "./projetos/routes";
 import dashboard from "./dashboard/routes";
+import tiposServico from "./tipos-servico/routes";
+import portal from "./portal/routes";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -14,6 +16,10 @@ app.route("/api/configuracoes", configuracoes);
 app.route("/api/clientes", clientes);
 app.route("/api/projetos", projetos);
 app.route("/api/dashboard", dashboard);
+app.route("/api/tipos-servico", tiposServico);
+// Portal do Cliente — API externa isolada, cookie e tabela de sessão
+// próprios (ver src/worker/portal). Nunca reaproveita withSession/AuthEnv.
+app.route("/api/portal", portal);
 
 app.get("/api/health", async (c) => {
 	const timestamp = new Date().toISOString();

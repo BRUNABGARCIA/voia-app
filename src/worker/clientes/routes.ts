@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { hashPassword } from "../auth/hash";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
 
 const TIPOS = ["PF", "PJ"] as const;
@@ -232,5 +233,235 @@ clientes.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 	const atualizado = await c.env.DB.prepare(SELECT_DETALHE).bind(id).first();
 	return c.json({ cliente: atualizado });
 });
+
+// =====================================================================
+// Acessos externos (Portal do Cliente) — cliente_contatos + processos
+// autorizados. Gerenciar quem tem acesso é uma ação administrativa da
+// mesma régua de "gerenciar equipe do projeto": administrador ou gestor.
+// Nunca concede acesso a todos os projetos do cliente automaticamente —
+// cada processo precisa ser marcado explicitamente para cada contato.
+// =====================================================================
+
+const criarContatoSchema = z.object({
+	nome: z.string().trim().min(1).max(200),
+	email: z.string().trim().toLowerCase().min(1).max(254).email(),
+	telefone: textoOpcional(30),
+	senha: z.string().min(8).max(200).optional(),
+	ativo: z.boolean().optional().default(true),
+});
+
+const patchContatoSchema = z
+	.object({
+		nome: z.string().trim().min(1).max(200).optional(),
+		email: z.string().trim().toLowerCase().min(1).max(254).email().optional(),
+		telefone: textoOpcional(30),
+		senha: z.string().min(8).max(200).optional(),
+		ativo: z.boolean().optional(),
+	})
+	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
+
+const processosAutorizadosSchema = z.object({
+	projeto_ids: z.array(z.number().int().positive()),
+});
+
+const SELECT_CONTATO =
+	"SELECT id, cliente_id, nome, email, telefone, ativo, ultimo_login_em, criado_em, atualizado_em FROM cliente_contatos";
+
+clientes.get(
+	"/:id/contatos",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		if (!Number.isInteger(clienteId) || clienteId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const { results } = await c.env.DB.prepare(`${SELECT_CONTATO} WHERE cliente_id = ? ORDER BY nome`)
+			.bind(clienteId)
+			.all();
+
+		return c.json({ contatos: results });
+	},
+);
+
+clientes.post(
+	"/:id/contatos",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		if (!Number.isInteger(clienteId) || clienteId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const cliente = await c.env.DB.prepare("SELECT id FROM clientes WHERE id = ?").bind(clienteId).first();
+		if (!cliente) {
+			return c.json({ error: "cliente não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = criarContatoSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados = parsed.data;
+
+		const senhaHash = dados.senha ? await hashPassword(dados.senha) : null;
+
+		let novoId: number;
+		try {
+			const resultado = await c.env.DB.prepare(
+				"INSERT INTO cliente_contatos (cliente_id, nome, email, telefone, senha_hash, ativo) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+			)
+				.bind(clienteId, dados.nome, dados.email, dados.telefone, senhaHash, dados.ativo ? 1 : 0)
+				.first<{ id: number }>();
+			if (!resultado) throw new Error("insert sem retorno");
+			novoId = resultado.id;
+		} catch {
+			return c.json({ error: "já existe um contato com este e-mail" }, 409);
+		}
+
+		const criado = await c.env.DB.prepare(`${SELECT_CONTATO} WHERE id = ?`).bind(novoId).first();
+		return c.json({ contato: criado }, 201);
+	},
+);
+
+clientes.patch(
+	"/:id/contatos/:contatoId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		const contatoId = Number(c.req.param("contatoId"));
+		if (!Number.isInteger(clienteId) || !Number.isInteger(contatoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const existente = await c.env.DB.prepare("SELECT id FROM cliente_contatos WHERE id = ? AND cliente_id = ?")
+			.bind(contatoId, clienteId)
+			.first();
+		if (!existente) {
+			return c.json({ error: "contato não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = patchContatoSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+
+		const { senha, ...resto } = parsed.data;
+		const dados: Record<string, unknown> = { ...resto };
+		if ("ativo" in dados) {
+			dados.ativo = dados.ativo ? 1 : 0;
+		}
+		if (senha) {
+			dados.senha_hash = await hashPassword(senha);
+		}
+
+		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
+		const valores: unknown[] = [];
+		for (const [campo, valor] of Object.entries(dados)) {
+			campos.push(`${campo} = ?`);
+			valores.push(valor);
+		}
+
+		try {
+			await c.env.DB.prepare(`UPDATE cliente_contatos SET ${campos.join(", ")} WHERE id = ?`)
+				.bind(...valores, contatoId)
+				.run();
+		} catch {
+			return c.json({ error: "não foi possível atualizar (e-mail já em uso?)" }, 409);
+		}
+
+		const atualizado = await c.env.DB.prepare(`${SELECT_CONTATO} WHERE id = ?`).bind(contatoId).first();
+		return c.json({ contato: atualizado });
+	},
+);
+
+clientes.get(
+	"/:id/contatos/:contatoId/processos",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		const contatoId = Number(c.req.param("contatoId"));
+		if (!Number.isInteger(clienteId) || !Number.isInteger(contatoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const contato = await c.env.DB.prepare("SELECT id FROM cliente_contatos WHERE id = ? AND cliente_id = ?")
+			.bind(contatoId, clienteId)
+			.first();
+		if (!contato) {
+			return c.json({ error: "contato não encontrado" }, 404);
+		}
+
+		// Só projetos DESTE cliente entram na lista de opções — não faz
+		// sentido autorizar um contato de um cliente a ver o processo de outro.
+		const { results } = await c.env.DB.prepare(
+			`SELECT p.id, p.codigo, p.nome, p.status,
+			        (ccp.projeto_id IS NOT NULL) AS autorizado
+			 FROM projetos p
+			 LEFT JOIN cliente_contato_processos ccp ON ccp.projeto_id = p.id AND ccp.contato_id = ?
+			 WHERE p.cliente_id = ?
+			 ORDER BY p.criado_em DESC`,
+		)
+			.bind(contatoId, clienteId)
+			.all();
+
+		return c.json({ processos: results });
+	},
+);
+
+clientes.put(
+	"/:id/contatos/:contatoId/processos",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		const contatoId = Number(c.req.param("contatoId"));
+		if (!Number.isInteger(clienteId) || !Number.isInteger(contatoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const contato = await c.env.DB.prepare("SELECT id FROM cliente_contatos WHERE id = ? AND cliente_id = ?")
+			.bind(contatoId, clienteId)
+			.first();
+		if (!contato) {
+			return c.json({ error: "contato não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = processosAutorizadosSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+
+		// Filtra para só os ids que de fato pertencem a este cliente — o
+		// caller não pode conceder acesso a um projeto de outro cliente só
+		// por enviar o id no corpo da requisição.
+		const { results: validos } = await c.env.DB.prepare(
+			`SELECT id FROM projetos WHERE cliente_id = ? AND id IN (${parsed.data.projeto_ids.map(() => "?").join(",") || "NULL"})`,
+		)
+			.bind(clienteId, ...parsed.data.projeto_ids)
+			.all<{ id: number }>();
+
+		await c.env.DB.prepare("DELETE FROM cliente_contato_processos WHERE contato_id = ?").bind(contatoId).run();
+		for (const { id: projetoId } of validos) {
+			await c.env.DB.prepare("INSERT INTO cliente_contato_processos (contato_id, projeto_id) VALUES (?, ?)")
+				.bind(contatoId, projetoId)
+				.run();
+		}
+
+		return c.json({ ok: true, autorizados: validos.map((v) => v.id) });
+	},
+);
 
 export default clientes;
