@@ -17,7 +17,7 @@ Este documento é só um mapa de pontos a revisitar **se e quando** este código
 - Sessões (`sessoes`, cookie `voia_session`) não carregam contexto de empresa — precisariam resolver "usuário pertence a qual organização" no login.
 
 ## Storage que precisará isolamento
-- `projeto_documentos.storage_key` (migration 0019, Etapa H) já está desenhado para receber uma chave de objeto R2 — quando o storage existir, a chave precisará ser prefixada por empresa (ex.: `empresa_id/projeto_id/arquivo`) para nunca haver colisão ou vazamento entre organizações.
+- O armazenamento de documentos (Cloudflare R2, binding `DOCUMENTOS_BUCKET`, migrations 0019/0020) já está implementado e funcional, mas o bucket é único para toda a instância e a chave do objeto é só `projetos/{projeto_id}/{uuid}-{nome}` — sem prefixo de empresa. Numa versão multiempresa, a chave precisará virar algo como `empresas/{empresa_id}/projetos/{projeto_id}/{uuid}-{nome}` (ou um bucket por empresa) para nunca haver colisão ou vazamento entre organizações.
 
 ## Configurações que precisarão ser por empresa
 - `configuracoes_aparencia` (logo, cores, nome do sistema) hoje é uma linha única global — precisaria virar uma linha por empresa.

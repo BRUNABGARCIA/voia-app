@@ -119,12 +119,23 @@ export interface Documento {
 	categoria: CategoriaDocumento;
 	descricao: string | null;
 	visivel_cliente: number;
-	/** Sempre null nesta rodada — reservado para quando o armazenamento (R2) for configurado. */
-	storage_key: string | null;
 	autor_id: number | null;
 	autor_nome: string | null;
 	criado_em: string;
 	atualizado_em: string;
+	/** Nome do arquivo como foi enviado — null quando nenhum arquivo foi anexado ainda. */
+	nome_arquivo_original: string | null;
+	mime_type: string | null;
+	tamanho_bytes: number | null;
+	/** Derivado de storage_key IS NOT NULL — a chave em si nunca é exposta ao frontend. */
+	possui_arquivo: number;
+}
+
+export function formatarTamanhoArquivo(bytes: number | null): string {
+	if (bytes === null || bytes <= 0) return "";
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export const CATEGORIAS_DOCUMENTO: CategoriaDocumento[] = [

@@ -81,6 +81,29 @@ SQLite local separado (não usa o banco remoto) ao aplicar as migrations:
 npx wrangler d1 migrations apply voia-db --local
 ```
 
+## Cloudflare R2 — Documentos
+
+O binding `DOCUMENTOS_BUCKET` em `wrangler.json` (`r2_buckets`) aponta para
+um bucket **privado** chamado `voia-documentos`, usado para o arquivo real
+por trás de cada registro de `projeto_documentos` (aba Documentos do
+projeto e Portal do Cliente). O bucket nunca é público — todo acesso passa
+pelas rotas autenticadas do Worker, que buscam o objeto pelo binding e
+servem os bytes (nunca uma URL direta do R2).
+
+- **Chave do objeto**: `projetos/{projeto_id}/{uuid}-{nome-sanitizado}` —
+  nunca o nome original puro, para evitar colisão e path traversal.
+- **Formatos aceitos**: PDF, DWG, DXF, DOC, DOCX, XLS, XLSX, JPG, JPEG,
+  PNG, ZIP. Validados por extensão **e** por assinatura de bytes (quando o
+  formato tem uma confiável), nunca só pelo `Content-Type` que o navegador
+  informou.
+- **Limite de tamanho**: 20 MB por arquivo (`TAMANHO_MAXIMO_BYTES` em
+  `src/worker/storage/documentos.ts`).
+- Para desenvolvimento **local**, o `wrangler dev` emula o R2 localmente
+  (Miniflare) — upload/download funcionam sem nenhum bucket real
+  provisionado na Cloudflare. **Para produção**, o bucket remoto precisa
+  ser criado manualmente (ver seção "Estágio atual" / relatório da rodada
+  que introduziu o R2) antes do primeiro `wrangler deploy`.
+
 ## Migrations
 
 Migrations ficam em `migrations/`, aplicadas via nome sequencial:

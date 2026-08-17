@@ -154,21 +154,51 @@ export interface DocumentoPublico {
 	categoria: string;
 	descricao: string | null;
 	criadoEm: string;
+	mimeType: string | null;
+	tamanhoBytes: number | null;
+	possuiArquivo: boolean;
 }
 
-// Nunca inclui storage_key (chave interna do futuro armazenamento) nem
-// autor_id — mesma régua desta camada de nunca vazar coluna administrativa
-// para fora. Enquanto não há armazenamento configurado, é só metadado; o
-// Portal mostra a existência do documento, não um link para baixá-lo.
+// Nunca inclui storage_key (chave interna do armazenamento) nem autor_id —
+// mesma régua desta camada de nunca vazar coluna administrativa para fora.
+// "possuiArquivo" é só um booleano derivado (storage_key IS NOT NULL) para
+// a interface decidir se mostra o botão Baixar — o valor da chave em si
+// nunca sai daqui; o download real é servido por uma rota separada que
+// resolve a storage_key sozinha no backend a partir do id do documento.
 export async function buscarDocumentosPublicos(db: D1Database, projetoId: number): Promise<DocumentoPublico[]> {
 	const { results } = await db
 		.prepare(
-			`SELECT id, nome, categoria, descricao, criado_em AS criadoEm
+			`SELECT id, nome, categoria, descricao, criado_em AS criadoEm,
+			        mime_type AS mimeType, tamanho_bytes AS tamanhoBytes,
+			        (storage_key IS NOT NULL) AS possuiArquivo
 			 FROM projeto_documentos
 			 WHERE projeto_id = ? AND visivel_cliente = 1
 			 ORDER BY criado_em DESC, id DESC`,
 		)
 		.bind(projetoId)
 		.all<DocumentoPublico>();
-	return results;
+	return results.map((r) => ({ ...r, possuiArquivo: Boolean(r.possuiArquivo) }));
+}
+
+/**
+ * Verifica se o documento é baixável por este contato: precisa pertencer
+ * ao projeto para o qual o contato já foi autorizado (checado por quem
+ * chama, via estaAutorizado), estar marcado visivel_cliente=1, E ter um
+ * arquivo de fato anexado. Nunca é suficiente só o :documentoId da URL —
+ * projetoId também precisa bater, senão devolve null (404 para quem chama).
+ */
+export async function buscarDocumentoBaixavel(
+	db: D1Database,
+	projetoId: number,
+	documentoId: number,
+): Promise<{ storageKey: string; nomeArquivoOriginal: string | null; nome: string; mimeType: string | null } | null> {
+	const row = await db
+		.prepare(
+			`SELECT storage_key AS storageKey, nome_arquivo_original AS nomeArquivoOriginal, nome, mime_type AS mimeType
+			 FROM projeto_documentos
+			 WHERE id = ? AND projeto_id = ? AND visivel_cliente = 1 AND storage_key IS NOT NULL`,
+		)
+		.bind(documentoId, projetoId)
+		.first<{ storageKey: string; nomeArquivoOriginal: string | null; nome: string; mimeType: string | null }>();
+	return row ?? null;
 }

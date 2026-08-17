@@ -19,5 +19,11 @@
 			"database_id": "217f7490-d357-4c36-827f-afd54589adb9",
 			"migrations_dir": "migrations"
 		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "DOCUMENTOS_BUCKET",
+			"bucket_name": "voia-documentos"
+		}
 	]
 }

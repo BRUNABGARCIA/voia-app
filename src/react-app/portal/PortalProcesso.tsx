@@ -5,6 +5,7 @@ import {
 	CATEGORIA_DOCUMENTO_PORTAL_LABEL,
 	STATUS_PROCESSO_LABEL,
 	formatarDataPortal,
+	formatarTamanhoArquivo,
 	type EtapaPortal,
 	type ProcessoDetalhePortal,
 } from "../lib/portal-tipos";
@@ -237,6 +238,19 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 									{CATEGORIA_DOCUMENTO_PORTAL_LABEL[doc.categoria] ?? doc.categoria}
 								</span>
 								<span className="text-xs text-voia-neutral-500">{formatarDataPortal(doc.criadoEm.slice(0, 10))}</span>
+								{doc.tamanhoBytes ? (
+									<span className="text-xs text-voia-neutral-500">{formatarTamanhoArquivo(doc.tamanhoBytes)}</span>
+								) : null}
+								{doc.possuiArquivo ? (
+									<a
+										href={`/api/portal/processos/${processo.id}/documentos/${doc.id}/download`}
+										className="text-xs font-medium text-voia-green-800 hover:underline"
+									>
+										Baixar
+									</a>
+								) : (
+									<span className="text-xs text-voia-neutral-500">Arquivo não anexado</span>
+								)}
 							</li>
 						))}
 					</ul>

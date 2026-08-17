@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import DocumentoModal from "./DocumentoModal";
-import { CATEGORIAS_DOCUMENTO, CATEGORIA_DOCUMENTO_LABEL, type Documento, type Etapa } from "../lib/projeto-tipos";
+import {
+	CATEGORIAS_DOCUMENTO,
+	CATEGORIA_DOCUMENTO_LABEL,
+	formatarTamanhoArquivo,
+	type Documento,
+	type Etapa,
+} from "../lib/projeto-tipos";
 
 function formatarDataHora(valor: string): string {
 	const data = new Date(valor.includes("T") ? valor : `${valor.replace(" ", "T")}Z`);
@@ -76,12 +82,6 @@ export default function DocumentosPanel({
 
 	return (
 		<div className="mt-6 space-y-4">
-			<p className="rounded-control border border-voia-neutral-100 bg-voia-beige-50 px-3 py-2 text-xs text-voia-neutral-700">
-				O armazenamento de arquivos (Cloudflare R2) ainda não está configurado nesta instância — os documentos abaixo
-				guardam só metadados (nome, categoria, visibilidade). Anexar e baixar arquivos será habilitado quando o
-				armazenamento for conectado.
-			</p>
-
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<select
 					value={categoriaFiltro}
@@ -143,28 +143,48 @@ export default function DocumentosPanel({
 									{doc.autor_nome && ` · ${doc.autor_nome}`}
 									{doc.etapa_nome && ` · ${doc.etapa_nome}`}
 								</p>
+								<p className="mt-1 text-xs text-voia-neutral-500">
+									{doc.possui_arquivo === 1 ? (
+										<>
+											{doc.nome_arquivo_original}
+											{doc.tamanho_bytes ? ` · ${formatarTamanhoArquivo(doc.tamanho_bytes)}` : ""}
+										</>
+									) : (
+										"Arquivo não anexado"
+									)}
+								</p>
 							</div>
-							{podeEditar && (
-								<div className="flex shrink-0 items-center gap-3">
-									<button
-										type="button"
-										onClick={() => setEditando(doc)}
+							<div className="flex shrink-0 items-center gap-3">
+								{doc.possui_arquivo === 1 && (
+									<a
+										href={`/api/projetos/${projetoId}/documentos/${doc.id}/download`}
 										className="text-xs font-medium text-voia-green-800 hover:underline"
 									>
-										Editar
-									</button>
-									{podeExcluir && (
+										Baixar
+									</a>
+								)}
+								{podeEditar && (
+									<>
 										<button
 											type="button"
-											onClick={() => remover(doc)}
-											disabled={removendoId === doc.id}
-											className="text-xs font-medium text-voia-danger hover:underline disabled:opacity-(--opacity-disabled)"
+											onClick={() => setEditando(doc)}
+											className="text-xs font-medium text-voia-green-800 hover:underline"
 										>
-											Remover
+											Editar
 										</button>
-									)}
-								</div>
-							)}
+										{podeExcluir && (
+											<button
+												type="button"
+												onClick={() => remover(doc)}
+												disabled={removendoId === doc.id}
+												className="text-xs font-medium text-voia-danger hover:underline disabled:opacity-(--opacity-disabled)"
+											>
+												Remover
+											</button>
+										)}
+									</>
+								)}
+							</div>
 						</li>
 					))}
 				</ul>

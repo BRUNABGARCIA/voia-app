@@ -1,6 +1,18 @@
 import { useState, type FormEvent } from "react";
 import ModalShell from "./ModalShell";
-import { CATEGORIAS_DOCUMENTO, CATEGORIA_DOCUMENTO_LABEL, type Documento, type Etapa } from "../lib/projeto-tipos";
+import {
+	CATEGORIAS_DOCUMENTO,
+	CATEGORIA_DOCUMENTO_LABEL,
+	formatarTamanhoArquivo,
+	type Documento,
+	type Etapa,
+} from "../lib/projeto-tipos";
+
+// Mesma lista aceita pelo backend (src/worker/storage/documentos.ts) — só
+// para dar feedback imediato ao usuário; a validação que vale de verdade
+// (tamanho real, assinatura de bytes) acontece sempre no servidor.
+const EXTENSOES_ACEITAS = ["pdf", "dwg", "dxf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "zip"];
+const TAMANHO_MAXIMO_MB = 20;
 
 interface FormState {
 	nome: string;
@@ -20,6 +32,12 @@ function documentoParaForm(documento: Documento | null): FormState {
 	};
 }
 
+function extensaoValida(nomeArquivo: string): boolean {
+	const partes = nomeArquivo.toLowerCase().split(".");
+	const extensao = partes.length > 1 ? partes[partes.length - 1] : "";
+	return EXTENSOES_ACEITAS.includes(extensao);
+}
+
 export default function DocumentoModal({
 	projetoId,
 	etapas,
@@ -35,11 +53,29 @@ export default function DocumentoModal({
 }) {
 	const editando = documento !== null;
 	const [form, setForm] = useState<FormState>(() => documentoParaForm(documento));
+	const [arquivo, setArquivo] = useState<File | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
+	const [arquivoSubstituto, setArquivoSubstituto] = useState<File | null>(null);
+	const [enviandoArquivo, setEnviandoArquivo] = useState(false);
+	const [erroArquivo, setErroArquivo] = useState<string | null>(null);
+
 	function set<K extends keyof FormState>(campo: K) {
 		return (valor: FormState[K]) => setForm((atual) => ({ ...atual, [campo]: valor }));
+	}
+
+	function selecionarArquivo(file: File | null) {
+		setError(null);
+		if (file && !extensaoValida(file.name)) {
+			setError(`Formato não permitido. Aceitos: ${EXTENSOES_ACEITAS.join(", ").toUpperCase()}.`);
+			return;
+		}
+		if (file && file.size > TAMANHO_MAXIMO_MB * 1024 * 1024) {
+			setError(`O arquivo excede o limite de ${TAMANHO_MAXIMO_MB} MB.`);
+			return;
+		}
+		setArquivo(file);
 	}
 
 	async function handleSubmit(e: FormEvent) {
@@ -53,28 +89,42 @@ export default function DocumentoModal({
 
 		setSubmitting(true);
 		try {
-			const payload = {
-				nome: form.nome,
-				categoria: form.categoria,
-				etapa_id: form.etapa_id ? Number(form.etapa_id) : null,
-				descricao: form.descricao || null,
-				visivel_cliente: form.visivel_cliente,
-			};
+			if (editando) {
+				const payload = {
+					nome: form.nome,
+					categoria: form.categoria,
+					etapa_id: form.etapa_id ? Number(form.etapa_id) : null,
+					descricao: form.descricao || null,
+					visivel_cliente: form.visivel_cliente,
+				};
+				const res = await fetch(`/api/projetos/${projetoId}/documentos/${documento.id}`, {
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					credentials: "same-origin",
+					body: JSON.stringify(payload),
+				});
+				if (!res.ok) {
+					const body = (await res.json().catch(() => null)) as { error?: string } | null;
+					throw new Error(body?.error ?? "não foi possível salvar o documento");
+				}
+			} else {
+				const dados = new FormData();
+				dados.set("nome", form.nome);
+				dados.set("categoria", form.categoria);
+				if (form.etapa_id) dados.set("etapa_id", form.etapa_id);
+				if (form.descricao) dados.set("descricao", form.descricao);
+				dados.set("visivel_cliente", form.visivel_cliente ? "true" : "false");
+				if (arquivo) dados.set("arquivo", arquivo);
 
-			const url = editando
-				? `/api/projetos/${projetoId}/documentos/${documento.id}`
-				: `/api/projetos/${projetoId}/documentos`;
-
-			const res = await fetch(url, {
-				method: editando ? "PATCH" : "POST",
-				headers: { "Content-Type": "application/json" },
-				credentials: "same-origin",
-				body: JSON.stringify(payload),
-			});
-
-			if (!res.ok) {
-				const body = (await res.json().catch(() => null)) as { error?: string } | null;
-				throw new Error(body?.error ?? "não foi possível salvar o documento");
+				const res = await fetch(`/api/projetos/${projetoId}/documentos`, {
+					method: "POST",
+					credentials: "same-origin",
+					body: dados,
+				});
+				if (!res.ok) {
+					const body = (await res.json().catch(() => null)) as { error?: string } | null;
+					throw new Error(body?.error ?? "não foi possível salvar o documento");
+				}
 			}
 
 			onSaved();
@@ -82,6 +132,30 @@ export default function DocumentoModal({
 			setError(err instanceof Error ? err.message : "não foi possível salvar o documento");
 		} finally {
 			setSubmitting(false);
+		}
+	}
+
+	async function enviarArquivoSubstituto() {
+		if (!documento || !arquivoSubstituto) return;
+		setErroArquivo(null);
+		setEnviandoArquivo(true);
+		try {
+			const dados = new FormData();
+			dados.set("arquivo", arquivoSubstituto);
+			const res = await fetch(`/api/projetos/${projetoId}/documentos/${documento.id}/arquivo`, {
+				method: "POST",
+				credentials: "same-origin",
+				body: dados,
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "não foi possível enviar o arquivo");
+			}
+			onSaved();
+		} catch (err) {
+			setErroArquivo(err instanceof Error ? err.message : "não foi possível enviar o arquivo");
+		} finally {
+			setEnviandoArquivo(false);
 		}
 	}
 
@@ -111,11 +185,57 @@ export default function DocumentoModal({
 			}
 		>
 			<div className="space-y-4">
-				<p className="rounded-control bg-voia-beige-100 px-3 py-2 text-xs text-voia-neutral-700">
-					O armazenamento de arquivos ainda não está configurado nesta instância — este registro guarda só os dados do
-					documento (nome, categoria, visibilidade). O anexo do arquivo será habilitado quando o armazenamento for
-					conectado.
-				</p>
+				{!editando && (
+					<div>
+						<label htmlFor="documento-arquivo" className="block text-sm font-medium text-voia-neutral-900">
+							Arquivo (opcional)
+						</label>
+						<input
+							id="documento-arquivo"
+							type="file"
+							accept={EXTENSOES_ACEITAS.map((ext) => `.${ext}`).join(",")}
+							onChange={(e) => selecionarArquivo(e.target.files?.[0] ?? null)}
+							className="mt-1 w-full text-sm text-voia-neutral-700 file:mr-3 file:rounded-control file:border file:border-voia-neutral-100 file:bg-voia-beige-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-voia-neutral-700 hover:file:bg-voia-beige-100"
+						/>
+						<p className="mt-1 text-xs text-voia-neutral-500">
+							Formatos aceitos: {EXTENSOES_ACEITAS.join(", ").toUpperCase()}. Até {TAMANHO_MAXIMO_MB} MB. Pode ser
+							anexado depois, se preferir registrar só os dados agora.
+						</p>
+					</div>
+				)}
+
+				{editando && documento && (
+					<div className="rounded-control border border-voia-neutral-100 bg-voia-beige-50 p-3">
+						<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Arquivo</span>
+						{documento.possui_arquivo === 1 ? (
+							<p className="mt-1 text-sm text-voia-neutral-900">
+								{documento.nome_arquivo_original}
+								{documento.tamanho_bytes ? ` · ${formatarTamanhoArquivo(documento.tamanho_bytes)}` : ""}
+							</p>
+						) : (
+							<p className="mt-1 text-sm text-voia-neutral-500">Arquivo não anexado.</p>
+						)}
+						<div className="mt-2 flex flex-wrap items-center gap-2">
+							<input
+								id="documento-arquivo-substituto"
+								type="file"
+								accept={EXTENSOES_ACEITAS.map((ext) => `.${ext}`).join(",")}
+								onChange={(e) => setArquivoSubstituto(e.target.files?.[0] ?? null)}
+								className="text-xs text-voia-neutral-700 file:mr-2 file:rounded-control file:border file:border-voia-neutral-100 file:bg-white file:px-2 file:py-1 file:text-xs file:font-medium file:text-voia-neutral-700 hover:file:bg-voia-beige-100"
+							/>
+							<button
+								type="button"
+								disabled={!arquivoSubstituto || enviandoArquivo}
+								onClick={enviarArquivoSubstituto}
+								className="rounded-control border border-voia-neutral-100 px-3 py-1 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100 disabled:opacity-(--opacity-disabled)"
+							>
+								{enviandoArquivo ? "Enviando…" : documento.possui_arquivo === 1 ? "Substituir arquivo" : "Anexar arquivo"}
+							</button>
+						</div>
+						{erroArquivo && <p className="mt-1 text-xs text-voia-danger">{erroArquivo}</p>}
+					</div>
+				)}
+
 				<div>
 					<label htmlFor="documento-nome" className="block text-sm font-medium text-voia-neutral-900">
 						Nome

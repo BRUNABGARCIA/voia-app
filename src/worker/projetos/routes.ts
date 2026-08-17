@@ -6,6 +6,15 @@ import { gerarEtapasIniciais, adicionarEstruturaTipoServico, tiposServicoDisponi
 import { sqlEtapaAtrasada, sqlProjetoAtrasado, sqlTarefaAtrasada } from "./atraso";
 import { registrarEvento } from "./historico";
 import { sincronizarStatusEtapa } from "./status-etapa";
+import {
+	validarArquivo,
+	gerarStorageKey,
+	salvarArquivo,
+	lerArquivo,
+	removerArquivo,
+	contentDispositionAnexo,
+	type ArquivoRecebido,
+} from "../storage/documentos";
 
 const STATUS = [
 	"prospeccao",
@@ -141,11 +150,11 @@ const SELECT_TAREFA = `
 	LEFT JOIN usuarios u ON u.id = t.responsavel_id
 `;
 
-// Documentos do projeto (migration 0019) — só a camada de metadados existe
-// nesta rodada: não há binding R2 nem qualquer outro storage configurado,
-// então "storage_key" nasce sempre null e não existe endpoint de
-// upload/download. O registro em si (nome, categoria, visibilidade etc.)
-// já é útil e fica pronto para quando o armazenamento for conectado.
+// Documentos do projeto (migration 0019 + 0020) — metadados no D1, arquivo
+// real no Cloudflare R2 (binding "DOCUMENTOS_BUCKET"). "storage_key" só é
+// preenchido quando o upload no R2 é confirmado; documentos cadastrados
+// antes desta rodada (ou registrados sem arquivo) continuam com
+// storage_key null e a interface trata isso como "arquivo não anexado".
 const CATEGORIAS_DOCUMENTO = [
 	"contrato",
 	"proposta",
@@ -166,16 +175,38 @@ const camposDocumento = {
 	visivel_cliente: z.boolean().optional(),
 };
 
-const criarDocumentoSchema = z.object(camposDocumento);
-
 const patchDocumentoSchema = z
 	.object(camposDocumento)
 	.partial()
 	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
 
+// Criação de documento vem sempre como multipart/form-data (permite anexar
+// o arquivo real no mesmo request) — por isso os campos chegam como string
+// e são normalizados aqui, em vez de reaproveitar criarDocumentoSchema
+// (JSON). O campo "arquivo" (File) é lido separadamente pela rota.
+const documentoFormSchema = z.object({
+	nome: z.string().trim().min(1).max(200),
+	categoria: z.enum(CATEGORIAS_DOCUMENTO).optional(),
+	etapa_id: z
+		.string()
+		.optional()
+		.transform((v) => (v ? Number(v) : null))
+		.refine((v) => v === null || (Number.isInteger(v) && v > 0), { message: "etapa inválida" }),
+	descricao: z
+		.string()
+		.optional()
+		.transform((v) => (v && v.trim().length > 0 ? v.trim().slice(0, 2000) : null)),
+	visivel_cliente: z
+		.string()
+		.optional()
+		.transform((v) => v === "true" || v === "1" || v === "on"),
+});
+
 const SELECT_DOCUMENTO = `
 	SELECT d.id, d.projeto_id, d.etapa_id, e.nome AS etapa_nome, d.nome, d.categoria, d.descricao,
-	       d.visivel_cliente, d.storage_key, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em
+	       d.visivel_cliente, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em,
+	       d.nome_arquivo_original, d.mime_type, d.tamanho_bytes,
+	       (d.storage_key IS NOT NULL) AS possui_arquivo
 	FROM projeto_documentos d
 	LEFT JOIN projeto_etapas e ON e.id = d.etapa_id
 	LEFT JOIN usuarios u ON u.id = d.autor_id
@@ -1393,8 +1424,11 @@ projetos.post(
 			return c.json({ error: "projeto não encontrado" }, 404);
 		}
 
-		const body = await c.req.json().catch(() => null);
-		const parsed = criarDocumentoSchema.safeParse(body);
+		const body = await c.req.parseBody().catch(() => null);
+		if (!body) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const parsed = documentoFormSchema.safeParse(body);
 		if (!parsed.success) {
 			return c.json({ error: "dados inválidos" }, 400);
 		}
@@ -1409,22 +1443,65 @@ projetos.post(
 			}
 		}
 
+		// Arquivo é opcional na criação: um registro pode nascer só com
+		// metadados e receber o arquivo depois via "substituir/anexar arquivo".
+		const arquivoCampo = body["arquivo"];
+		const arquivoFile = arquivoCampo instanceof File && arquivoCampo.size > 0 ? arquivoCampo : null;
+
+		let storageKey: string | null = null;
+		let nomeArquivoOriginal: string | null = null;
+		let mimeType: string | null = null;
+		let tamanhoBytes: number | null = null;
+
+		if (arquivoFile) {
+			const arquivoRecebido: ArquivoRecebido = {
+				nomeOriginal: arquivoFile.name,
+				mimeType: arquivoFile.type,
+				tamanho: arquivoFile.size,
+				bytes: await arquivoFile.arrayBuffer(),
+			};
+			const validacao = validarArquivo(arquivoRecebido);
+			if (!validacao.ok) {
+				return c.json({ error: validacao.erro }, 400);
+			}
+
+			storageKey = gerarStorageKey(projetoId, arquivoFile.name);
+			await salvarArquivo(c.env.DOCUMENTOS_BUCKET, storageKey, arquivoRecebido);
+			nomeArquivoOriginal = arquivoFile.name.slice(0, 255);
+			mimeType = arquivoFile.type || null;
+			tamanhoBytes = arquivoFile.size;
+		}
+
 		const atual = c.get("user")!;
-		const resultado = await c.env.DB.prepare(
-			`INSERT INTO projeto_documentos (projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, autor_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
-			 RETURNING id`,
-		)
-			.bind(
-				projetoId,
-				dados.etapa_id ?? null,
-				dados.nome,
-				dados.categoria ?? "outros",
-				dados.descricao,
-				dados.visivel_cliente ? 1 : 0,
-				atual.id,
+		let resultado: { id: number } | null;
+		try {
+			resultado = await c.env.DB.prepare(
+				`INSERT INTO projeto_documentos (
+					projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, autor_id,
+					storage_key, nome_arquivo_original, mime_type, tamanho_bytes
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				 RETURNING id`,
 			)
-			.first<{ id: number }>();
+				.bind(
+					projetoId,
+					dados.etapa_id,
+					dados.nome,
+					dados.categoria ?? "outros",
+					dados.descricao,
+					dados.visivel_cliente ? 1 : 0,
+					atual.id,
+					storageKey,
+					nomeArquivoOriginal,
+					mimeType,
+					tamanhoBytes,
+				)
+				.first<{ id: number }>();
+		} catch (err) {
+			// Se o arquivo já foi salvo no R2 mas o registro no banco falhou,
+			// remove o objeto órfão em vez de deixá-lo sem nenhuma referência.
+			if (storageKey) await removerArquivo(c.env.DOCUMENTOS_BUCKET, storageKey);
+			throw err;
+		}
 
 		await registrarEvento(c.env.DB, {
 			projetoId,
@@ -1510,16 +1587,121 @@ projetos.delete(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const resultado = await c.env.DB.prepare("DELETE FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+		const existente = await c.env.DB.prepare("SELECT storage_key FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+			.bind(documentoId, projetoId)
+			.first<{ storage_key: string | null }>();
+		if (!existente) {
+			return c.json({ error: "documento não encontrado" }, 404);
+		}
+
+		await c.env.DB.prepare("DELETE FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
 			.bind(documentoId, projetoId)
 			.run();
 
-		if (resultado.meta.changes === 0) {
-			return c.json({ error: "documento não encontrado" }, 404);
+		// Só remove o objeto do R2 depois do registro apagado com sucesso —
+		// e de forma tolerante a já não existir (removerArquivo nunca lança).
+		if (existente.storage_key) {
+			await removerArquivo(c.env.DOCUMENTOS_BUCKET, existente.storage_key);
 		}
 
 		return c.json({ ok: true });
 	},
 );
+
+// Substitui (ou anexa pela primeira vez) o arquivo de um documento já
+// cadastrado, mantendo os metadados intactos. O novo objeto só é gravado
+// com uma storage_key nova; o banco só é atualizado DEPOIS do upload
+// confirmado no R2, e o objeto antigo só é removido DEPOIS do banco
+// atualizado — uma falha no upload novo nunca derruba o documento existente.
+projetos.post(
+	"/:id/documentos/:documentoId/arquivo",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const documentoId = Number(c.req.param("documentoId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(documentoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const existente = await c.env.DB.prepare("SELECT storage_key FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+			.bind(documentoId, projetoId)
+			.first<{ storage_key: string | null }>();
+		if (!existente) {
+			return c.json({ error: "documento não encontrado" }, 404);
+		}
+
+		const body = await c.req.parseBody().catch(() => null);
+		const arquivoCampo = body ? body["arquivo"] : null;
+		const arquivoFile = arquivoCampo instanceof File && arquivoCampo.size > 0 ? arquivoCampo : null;
+		if (!arquivoFile) {
+			return c.json({ error: "nenhum arquivo enviado" }, 400);
+		}
+
+		const arquivoRecebido: ArquivoRecebido = {
+			nomeOriginal: arquivoFile.name,
+			mimeType: arquivoFile.type,
+			tamanho: arquivoFile.size,
+			bytes: await arquivoFile.arrayBuffer(),
+		};
+		const validacao = validarArquivo(arquivoRecebido);
+		if (!validacao.ok) {
+			return c.json({ error: validacao.erro }, 400);
+		}
+
+		const novaStorageKey = gerarStorageKey(projetoId, arquivoFile.name);
+		await salvarArquivo(c.env.DOCUMENTOS_BUCKET, novaStorageKey, arquivoRecebido);
+
+		await c.env.DB.prepare(
+			`UPDATE projeto_documentos
+			 SET storage_key = ?, nome_arquivo_original = ?, mime_type = ?, tamanho_bytes = ?, atualizado_em = CURRENT_TIMESTAMP
+			 WHERE id = ?`,
+		)
+			.bind(novaStorageKey, arquivoFile.name.slice(0, 255), arquivoFile.type || null, arquivoFile.size, documentoId)
+			.run();
+
+		if (existente.storage_key) {
+			await removerArquivo(c.env.DOCUMENTOS_BUCKET, existente.storage_key);
+		}
+
+		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(documentoId).first();
+		return c.json({ documento });
+	},
+);
+
+// Download — nunca expõe o bucket R2 nem a storage_key diretamente; o
+// conteúdo só sai através desta rota autenticada, que busca o objeto pelo
+// binding e devolve os bytes já com o Content-Type e nome originais. Ver =
+// mesma régua de "ver documentos" (qualquer autenticado no projeto).
+projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	const documentoId = Number(c.req.param("documentoId"));
+	if (!Number.isInteger(projetoId) || !Number.isInteger(documentoId)) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const documento = await c.env.DB.prepare(
+		"SELECT storage_key, nome_arquivo_original, nome, mime_type FROM projeto_documentos WHERE id = ? AND projeto_id = ?",
+	)
+		.bind(documentoId, projetoId)
+		.first<{ storage_key: string | null; nome_arquivo_original: string | null; nome: string; mime_type: string | null }>();
+	if (!documento || !documento.storage_key) {
+		return c.json({ error: "arquivo não encontrado" }, 404);
+	}
+
+	const objeto = await lerArquivo(c.env.DOCUMENTOS_BUCKET, documento.storage_key);
+	if (!objeto) {
+		return c.json({ error: "arquivo não encontrado" }, 404);
+	}
+
+	return new Response(objeto.body, {
+		headers: {
+			"Content-Type": documento.mime_type || "application/octet-stream",
+			"Content-Disposition": contentDispositionAnexo(documento.nome_arquivo_original ?? documento.nome),
+			"Content-Length": String(objeto.size),
+		},
+	});
+});
 
 export default projetos;

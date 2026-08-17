@@ -17,8 +17,10 @@ import {
 	buscarEtapasPublicas,
 	buscarAtualizacoesPublicas,
 	buscarDocumentosPublicos,
+	buscarDocumentoBaixavel,
 	etapaAtualEProxima,
 } from "./processos";
+import { lerArquivo, contentDispositionAnexo } from "../storage/documentos";
 
 const loginSchema = z.object({
 	email: z.string().trim().toLowerCase().min(1).max(254).email(),
@@ -163,6 +165,43 @@ portal.get("/processos/:id", withPortalSession, requirePortalAuth, async (c) => 
 		etapas,
 		atualizacoes,
 		documentos,
+	});
+});
+
+// Download de documento pelo Portal — exige as mesmas duas condições de
+// exibição (autorizado no processo + visivel_cliente=1) MAIS o documento
+// ter um arquivo de fato anexado; nenhuma delas é dispensável, e nenhuma é
+// decidida pelo frontend. O contato nunca vê nem recebe a storage_key —
+// só os bytes do arquivo, com nome/Content-Type originais.
+portal.get("/processos/:id/documentos/:documentoId/download", withPortalSession, requirePortalAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	const documentoId = Number(c.req.param("documentoId"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0 || !Number.isInteger(documentoId) || documentoId <= 0) {
+		return c.json({ error: "documento não encontrado" }, 404);
+	}
+
+	const contato = c.get("contato")!;
+	const autorizado = await estaAutorizado(c.env.DB, contato.id, projetoId);
+	if (!autorizado) {
+		return c.json({ error: "documento não encontrado" }, 404);
+	}
+
+	const documento = await buscarDocumentoBaixavel(c.env.DB, projetoId, documentoId);
+	if (!documento) {
+		return c.json({ error: "documento não encontrado" }, 404);
+	}
+
+	const objeto = await lerArquivo(c.env.DOCUMENTOS_BUCKET, documento.storageKey);
+	if (!objeto) {
+		return c.json({ error: "documento não encontrado" }, 404);
+	}
+
+	return new Response(objeto.body, {
+		headers: {
+			"Content-Type": documento.mimeType || "application/octet-stream",
+			"Content-Disposition": contentDispositionAnexo(documento.nomeArquivoOriginal ?? documento.nome),
+			"Content-Length": String(objeto.size),
+		},
 	});
 });
 
