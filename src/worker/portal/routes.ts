@@ -16,6 +16,7 @@ import {
 	buscarTiposServico,
 	buscarEtapasPublicas,
 	buscarAtualizacoesPublicas,
+	buscarDocumentosPublicos,
 	etapaAtualEProxima,
 } from "./processos";
 
@@ -136,10 +137,11 @@ portal.get("/processos/:id", withPortalSession, requirePortalAuth, async (c) => 
 		return c.json({ error: "processo não encontrado" }, 404);
 	}
 
-	const [tiposServico, etapas, atualizacoes, progressoAtual] = await Promise.all([
+	const [tiposServico, etapas, atualizacoes, documentos, progressoAtual] = await Promise.all([
 		buscarTiposServico(c.env.DB, projetoId),
 		buscarEtapasPublicas(c.env.DB, projetoId),
 		buscarAtualizacoesPublicas(c.env.DB, projetoId),
+		buscarDocumentosPublicos(c.env.DB, projetoId),
 		obterProgressoAtual(c.env.DB, projetoId),
 	]);
 
@@ -160,6 +162,7 @@ portal.get("/processos/:id", withPortalSession, requirePortalAuth, async (c) => 
 		proximaEtapa: proxima,
 		etapas,
 		atualizacoes,
+		documentos,
 	});
 });
 

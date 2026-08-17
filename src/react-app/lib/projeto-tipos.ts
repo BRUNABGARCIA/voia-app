@@ -99,6 +99,58 @@ export interface Tarefa {
 	atrasada: number;
 }
 
+export type CategoriaDocumento =
+	| "contrato"
+	| "proposta"
+	| "projeto"
+	| "levantamento"
+	| "relatorio"
+	| "art_rrt"
+	| "aprovacao"
+	| "documento_cliente"
+	| "outros";
+
+export interface Documento {
+	id: number;
+	projeto_id: number;
+	etapa_id: number | null;
+	etapa_nome: string | null;
+	nome: string;
+	categoria: CategoriaDocumento;
+	descricao: string | null;
+	visivel_cliente: number;
+	/** Sempre null nesta rodada — reservado para quando o armazenamento (R2) for configurado. */
+	storage_key: string | null;
+	autor_id: number | null;
+	autor_nome: string | null;
+	criado_em: string;
+	atualizado_em: string;
+}
+
+export const CATEGORIAS_DOCUMENTO: CategoriaDocumento[] = [
+	"contrato",
+	"proposta",
+	"projeto",
+	"levantamento",
+	"relatorio",
+	"art_rrt",
+	"aprovacao",
+	"documento_cliente",
+	"outros",
+];
+
+export const CATEGORIA_DOCUMENTO_LABEL: Record<CategoriaDocumento, string> = {
+	contrato: "Contrato",
+	proposta: "Proposta",
+	projeto: "Projeto",
+	levantamento: "Levantamento",
+	relatorio: "Relatório",
+	art_rrt: "ART/RRT",
+	aprovacao: "Aprovação",
+	documento_cliente: "Documento do Cliente",
+	outros: "Outros",
+};
+
 export const STATUS_TAREFA: StatusTarefa[] = ["pendente", "em_andamento", "aguardando", "concluida", "cancelada"];
 
 export const STATUS_TAREFA_LABEL: Record<StatusTarefa, string> = {

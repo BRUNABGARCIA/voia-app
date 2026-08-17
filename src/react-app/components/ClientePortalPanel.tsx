@@ -9,6 +9,7 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 	const [criando, setCriando] = useState(false);
 	const [editando, setEditando] = useState<ContatoCliente | null>(null);
 	const [gerenciandoProcessos, setGerenciandoProcessos] = useState<ContatoCliente | null>(null);
+	const [removendoId, setRemovendoId] = useState<number | null>(null);
 
 	const carregar = useCallback(() => {
 		fetch(`/api/clientes/${clienteId}/contatos`, { credentials: "same-origin" })
@@ -28,6 +29,24 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 		setCriando(false);
 		setEditando(null);
 		carregar();
+	}
+
+	async function remover(contato: ContatoCliente) {
+		if (!window.confirm(`Remover o contato "${contato.nome}"? Ele perderá o acesso ao Portal, se tiver.`)) return;
+		setError(null);
+		setRemovendoId(contato.id);
+		try {
+			const res = await fetch(`/api/clientes/${clienteId}/contatos/${contato.id}`, {
+				method: "DELETE",
+				credentials: "same-origin",
+			});
+			if (!res.ok) throw new Error("não foi possível remover o contato");
+			carregar();
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "não foi possível remover o contato");
+		} finally {
+			setRemovendoId(null);
+		}
 	}
 
 	if (error && !contatos) {
@@ -68,6 +87,15 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 								<div>
 									<div className="flex flex-wrap items-center gap-2">
 										<span className="font-medium text-voia-neutral-900">{contato.nome}</span>
+										{contato.possui_acesso === 1 ? (
+											<span className="rounded-control bg-voia-success/15 px-2 py-0.5 text-xs font-medium text-voia-success">
+												Acesso ao Portal ativo
+											</span>
+										) : (
+											<span className="rounded-control bg-voia-neutral-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-500">
+												Sem senha definida
+											</span>
+										)}
 										{contato.ativo === 0 && (
 											<span className="rounded-control bg-voia-neutral-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-500">
 												Inativo
@@ -91,6 +119,14 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 										className="text-xs font-medium text-voia-green-800 hover:underline"
 									>
 										Editar
+									</button>
+									<button
+										type="button"
+										onClick={() => remover(contato)}
+										disabled={removendoId === contato.id}
+										className="text-xs font-medium text-voia-danger hover:underline disabled:opacity-(--opacity-disabled)"
+									>
+										Remover
 									</button>
 								</div>
 							</div>

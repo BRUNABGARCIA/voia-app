@@ -141,6 +141,46 @@ const SELECT_TAREFA = `
 	LEFT JOIN usuarios u ON u.id = t.responsavel_id
 `;
 
+// Documentos do projeto (migration 0019) — só a camada de metadados existe
+// nesta rodada: não há binding R2 nem qualquer outro storage configurado,
+// então "storage_key" nasce sempre null e não existe endpoint de
+// upload/download. O registro em si (nome, categoria, visibilidade etc.)
+// já é útil e fica pronto para quando o armazenamento for conectado.
+const CATEGORIAS_DOCUMENTO = [
+	"contrato",
+	"proposta",
+	"projeto",
+	"levantamento",
+	"relatorio",
+	"art_rrt",
+	"aprovacao",
+	"documento_cliente",
+	"outros",
+] as const;
+
+const camposDocumento = {
+	nome: z.string().trim().min(1).max(200),
+	categoria: z.enum(CATEGORIAS_DOCUMENTO).optional(),
+	etapa_id: z.number().int().positive().optional().nullable(),
+	descricao: textoOpcional(2000),
+	visivel_cliente: z.boolean().optional(),
+};
+
+const criarDocumentoSchema = z.object(camposDocumento);
+
+const patchDocumentoSchema = z
+	.object(camposDocumento)
+	.partial()
+	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
+
+const SELECT_DOCUMENTO = `
+	SELECT d.id, d.projeto_id, d.etapa_id, e.nome AS etapa_nome, d.nome, d.categoria, d.descricao,
+	       d.visivel_cliente, d.storage_key, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em
+	FROM projeto_documentos d
+	LEFT JOIN projeto_etapas e ON e.id = d.etapa_id
+	LEFT JOIN usuarios u ON u.id = d.autor_id
+`;
+
 const gerarEstruturaSchema = z.object({ tipo_servico_id: z.number().int().positive() });
 
 const TITULO_TRANSICAO_ETAPA: Record<"iniciada" | "concluida" | "reaberta", string> = {
@@ -1308,6 +1348,177 @@ projetos.post(
 			.all();
 
 		return c.json({ ok: true, etapasGeradas: resultado.etapasGeradas, progresso, etapas });
+	},
+);
+
+// Documentos do projeto — mesma régua de permissão de etapas/tarefas: ver =
+// qualquer autenticado; criar/editar = administrador, gestor ou
+// colaborador; excluir = administrador ou gestor.
+projetos.get("/:id/documentos", withSession, requireAuth, async (c) => {
+	const projetoId = Number(c.req.param("id"));
+	if (!Number.isInteger(projetoId) || projetoId <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const categoria = c.req.query("categoria");
+	const condicoes = ["d.projeto_id = ?"];
+	const valores: unknown[] = [projetoId];
+	if (categoria && (CATEGORIAS_DOCUMENTO as readonly string[]).includes(categoria)) {
+		condicoes.push("d.categoria = ?");
+		valores.push(categoria);
+	}
+
+	const { results } = await c.env.DB.prepare(
+		`${SELECT_DOCUMENTO} WHERE ${condicoes.join(" AND ")} ORDER BY d.criado_em DESC, d.id DESC`,
+	)
+		.bind(...valores)
+		.all();
+
+	return c.json({ documentos: results });
+});
+
+projetos.post(
+	"/:id/documentos",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		if (!Number.isInteger(projetoId) || projetoId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const projeto = await c.env.DB.prepare("SELECT id FROM projetos WHERE id = ?").bind(projetoId).first();
+		if (!projeto) {
+			return c.json({ error: "projeto não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = criarDocumentoSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados = parsed.data;
+
+		if (dados.etapa_id) {
+			const etapa = await c.env.DB.prepare("SELECT id FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+				.bind(dados.etapa_id, projetoId)
+				.first();
+			if (!etapa) {
+				return c.json({ error: "etapa não encontrada neste projeto" }, 400);
+			}
+		}
+
+		const atual = c.get("user")!;
+		const resultado = await c.env.DB.prepare(
+			`INSERT INTO projeto_documentos (projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, autor_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			 RETURNING id`,
+		)
+			.bind(
+				projetoId,
+				dados.etapa_id ?? null,
+				dados.nome,
+				dados.categoria ?? "outros",
+				dados.descricao,
+				dados.visivel_cliente ? 1 : 0,
+				atual.id,
+			)
+			.first<{ id: number }>();
+
+		await registrarEvento(c.env.DB, {
+			projetoId,
+			tipo: "sistema",
+			tipoEvento: "documento_adicionado",
+			entidadeTipo: "projeto",
+			entidadeId: projetoId,
+			etapaId: dados.etapa_id ?? null,
+			titulo: `Documento "${dados.nome}" adicionado`,
+			usuarioId: atual.id,
+			visivelCliente: false,
+		});
+
+		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(resultado!.id).first();
+		return c.json({ documento }, 201);
+	},
+);
+
+projetos.patch(
+	"/:id/documentos/:documentoId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const documentoId = Number(c.req.param("documentoId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(documentoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const existente = await c.env.DB.prepare("SELECT id FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+			.bind(documentoId, projetoId)
+			.first();
+		if (!existente) {
+			return c.json({ error: "documento não encontrado" }, 404);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = patchDocumentoSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+
+		if (parsed.data.etapa_id) {
+			const etapa = await c.env.DB.prepare("SELECT id FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+				.bind(parsed.data.etapa_id, projetoId)
+				.first();
+			if (!etapa) {
+				return c.json({ error: "etapa não encontrada neste projeto" }, 400);
+			}
+		}
+
+		const dados: Record<string, unknown> = { ...parsed.data };
+		if (typeof dados.visivel_cliente === "boolean") {
+			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
+		}
+
+		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
+		const valores: unknown[] = [];
+		for (const [campo, valor] of Object.entries(dados)) {
+			campos.push(`${campo} = ?`);
+			valores.push(valor);
+		}
+
+		await c.env.DB.prepare(`UPDATE projeto_documentos SET ${campos.join(", ")} WHERE id = ?`)
+			.bind(...valores, documentoId)
+			.run();
+
+		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(documentoId).first();
+		return c.json({ documento });
+	},
+);
+
+projetos.delete(
+	"/:id/documentos/:documentoId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		const documentoId = Number(c.req.param("documentoId"));
+		if (!Number.isInteger(projetoId) || !Number.isInteger(documentoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const resultado = await c.env.DB.prepare("DELETE FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+			.bind(documentoId, projetoId)
+			.run();
+
+		if (resultado.meta.changes === 0) {
+			return c.json({ error: "documento não encontrado" }, 404);
+		}
+
+		return c.json({ ok: true });
 	},
 );
 

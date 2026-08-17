@@ -58,6 +58,8 @@ export interface ContatoCliente {
 	email: string;
 	telefone: string | null;
 	ativo: number;
+	/** Derivado no backend: possui senha definida, então consegue entrar no Portal. */
+	possui_acesso: number;
 	ultimo_login_em: string | null;
 	criado_em: string;
 	atualizado_em: string;

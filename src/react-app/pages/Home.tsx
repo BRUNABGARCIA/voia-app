@@ -36,6 +36,16 @@ interface MinhaTarefa {
 	atrasada: number;
 }
 
+type TipoAlerta = "tarefa_atrasada" | "tarefa_hoje" | "etapa_atrasada" | "projeto_sem_responsavel" | "projeto_proximo_prazo";
+
+interface Alerta {
+	tipo: TipoAlerta;
+	titulo: string;
+	projetoId: number;
+	projetoNome: string;
+	data: string | null;
+}
+
 interface DashboardResumo {
 	clientesAtivos: number;
 	projetosEmAndamento: number;
@@ -47,7 +57,26 @@ interface DashboardResumo {
 	tarefasAtrasadas: number;
 	tarefasHoje: number;
 	minhasProximasTarefas: MinhaTarefa[];
+	etapasAtrasadas: number;
+	projetosSemResponsavel: number;
+	alertas: Alerta[];
 }
+
+const ALERTA_LABEL: Record<TipoAlerta, string> = {
+	tarefa_atrasada: "Tarefa atrasada",
+	tarefa_hoje: "Prazo hoje",
+	etapa_atrasada: "Etapa atrasada",
+	projeto_sem_responsavel: "Sem responsável",
+	projeto_proximo_prazo: "Prazo próximo",
+};
+
+const ALERTA_CLASSE: Record<TipoAlerta, string> = {
+	tarefa_atrasada: "bg-voia-danger/15 text-voia-danger",
+	tarefa_hoje: "bg-voia-warning/15 text-voia-warning",
+	etapa_atrasada: "bg-voia-danger/15 text-voia-danger",
+	projeto_sem_responsavel: "bg-voia-neutral-100 text-voia-neutral-500",
+	projeto_proximo_prazo: "bg-voia-warning/15 text-voia-warning",
+};
 
 function KpiTile({ label, valor, destaque }: { label: string; valor: number; destaque?: boolean }) {
 	return (
@@ -105,6 +134,31 @@ export default function Home() {
 						<KpiTile label="Tarefas atrasadas" valor={resumo.tarefasAtrasadas} destaque={resumo.tarefasAtrasadas > 0} />
 						<KpiTile label="Tarefas para hoje" valor={resumo.tarefasHoje} />
 					</div>
+
+					{resumo.alertas.length > 0 && (
+						<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+							<h2 className="font-display text-lg text-voia-green-900">Alertas operacionais</h2>
+							<ul className="mt-3 space-y-2">
+								{resumo.alertas.map((alerta, idx) => (
+									<li key={idx} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+										<div>
+											<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${ALERTA_CLASSE[alerta.tipo]}`}>
+												{ALERTA_LABEL[alerta.tipo]}
+											</span>
+											<Link
+												to={`/projetos/${alerta.projetoId}`}
+												className="ml-2 font-medium text-voia-green-800 hover:underline"
+											>
+												{alerta.titulo}
+											</Link>
+											<span className="ml-2 text-xs text-voia-neutral-500">{alerta.projetoNome}</span>
+										</div>
+										{alerta.data && <span className="text-xs text-voia-neutral-500">{formatarData(alerta.data)}</span>}
+									</li>
+								))}
+							</ul>
+						</div>
+					)}
 
 					<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Minhas próximas tarefas</h2>

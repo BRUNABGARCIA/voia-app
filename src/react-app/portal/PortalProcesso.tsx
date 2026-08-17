@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import ProgressoBar from "../components/ProgressoBar";
-import { STATUS_PROCESSO_LABEL, formatarDataPortal, type EtapaPortal, type ProcessoDetalhePortal } from "../lib/portal-tipos";
+import {
+	CATEGORIA_DOCUMENTO_PORTAL_LABEL,
+	STATUS_PROCESSO_LABEL,
+	formatarDataPortal,
+	type EtapaPortal,
+	type ProcessoDetalhePortal,
+} from "../lib/portal-tipos";
 
 /** Símbolo amigável de andamento, sem jargão interno: ✓ concluída, ● em andamento/atrasada, ○ ainda não começou. */
 function simboloEtapa(etapa: EtapaPortal): string {
@@ -65,7 +71,7 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 		return <p className="text-sm text-voia-neutral-500">Carregando…</p>;
 	}
 
-	const { processo, etapaAtual, proximaEtapa, etapas, atualizacoes } = dados;
+	const { processo, etapaAtual, proximaEtapa, etapas, atualizacoes, documentos } = dados;
 
 	return (
 		<div>
@@ -215,6 +221,25 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 							);
 						})}
 					</ol>
+				)}
+			</div>
+
+			<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+				<h2 className="font-display text-lg text-voia-green-900">Documentos</h2>
+				{documentos.length === 0 ? (
+					<p className="mt-3 text-sm text-voia-neutral-500">Nenhum documento disponibilizado ainda.</p>
+				) : (
+					<ul className="mt-3 space-y-2">
+						{documentos.map((doc) => (
+							<li key={doc.id} className="flex flex-wrap items-center gap-2 text-sm">
+								<span className="font-medium text-voia-neutral-900">{doc.nome}</span>
+								<span className="rounded-control bg-voia-beige-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-700">
+									{CATEGORIA_DOCUMENTO_PORTAL_LABEL[doc.categoria] ?? doc.categoria}
+								</span>
+								<span className="text-xs text-voia-neutral-500">{formatarDataPortal(doc.criadoEm.slice(0, 10))}</span>
+							</li>
+						))}
+					</ul>
 				)}
 			</div>
 

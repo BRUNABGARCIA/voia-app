@@ -5,6 +5,7 @@ import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
 import EtapasPanel from "../components/EtapasPanel";
 import AndamentoPanel from "../components/AndamentoPanel";
+import DocumentosPanel from "../components/DocumentosPanel";
 import ProgressoBar from "../components/ProgressoBar";
 import Tabs from "../components/Tabs";
 import {
@@ -29,6 +30,7 @@ const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
 	{ key: "etapas", label: "Etapas e Tarefas" },
+	{ key: "documentos", label: "Documentos" },
 	{ key: "andamento", label: "Andamento" },
 	{ key: "equipe", label: "Equipe" },
 ];
@@ -116,10 +118,10 @@ export default function ProjetoWorkspace() {
 				← Projetos
 			</button>
 
-			<div className="mt-2 flex items-start justify-between">
+			<div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 				<div>
-					<div className="flex items-center gap-3">
-						<h1 className="font-display text-2xl font-light text-voia-neutral-900">
+					<div className="flex flex-wrap items-center gap-3">
+						<h1 className="font-display text-2xl font-light text-voia-neutral-900 break-words">
 							{projeto.codigo && <span className="text-voia-neutral-500">{projeto.codigo} · </span>}
 							{projeto.nome}
 						</h1>
@@ -286,6 +288,10 @@ export default function ProjetoWorkspace() {
 					podeExcluir={podeExcluirEtapa}
 					onProgressoChange={handleProgressoChange}
 				/>
+			)}
+
+			{aba === "documentos" && (
+				<DocumentosPanel projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} />
 			)}
 
 			{aba === "andamento" && <AndamentoPanel projetoId={projeto.id} podeEditar={podeEditar} />}

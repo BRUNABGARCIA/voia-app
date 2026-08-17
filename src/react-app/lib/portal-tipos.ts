@@ -41,6 +41,14 @@ export interface AtualizacaoPortal {
 	criadoEm: string;
 }
 
+export interface DocumentoPortal {
+	id: number;
+	nome: string;
+	categoria: string;
+	descricao: string | null;
+	criadoEm: string;
+}
+
 export interface ProcessoDetalhePortal {
 	processo: {
 		id: number;
@@ -59,7 +67,20 @@ export interface ProcessoDetalhePortal {
 	proximaEtapa: EtapaPortal | null;
 	etapas: EtapaPortal[];
 	atualizacoes: AtualizacaoPortal[];
+	documentos: DocumentoPortal[];
 }
+
+export const CATEGORIA_DOCUMENTO_PORTAL_LABEL: Record<string, string> = {
+	contrato: "Contrato",
+	proposta: "Proposta",
+	projeto: "Projeto",
+	levantamento: "Levantamento",
+	relatorio: "Relatório",
+	art_rrt: "ART/RRT",
+	aprovacao: "Aprovação",
+	documento_cliente: "Documento do Cliente",
+	outros: "Outros",
+};
 
 export const STATUS_PROCESSO_LABEL: Record<string, string> = {
 	prospeccao: "Prospecção",

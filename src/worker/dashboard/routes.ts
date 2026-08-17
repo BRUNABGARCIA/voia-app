@@ -1,6 +1,14 @@
 import { Hono } from "hono";
 import { requireAuth, withSession, type AuthEnv } from "../auth/middleware";
-import { sqlProjetoAtrasado, sqlTarefaAtrasada } from "../projetos/atraso";
+import { sqlEtapaAtrasada, sqlProjetoAtrasado, sqlTarefaAtrasada } from "../projetos/atraso";
+
+interface Alerta {
+	tipo: "tarefa_atrasada" | "tarefa_hoje" | "etapa_atrasada" | "projeto_sem_responsavel" | "projeto_proximo_prazo";
+	titulo: string;
+	projetoId: number;
+	projetoNome: string;
+	data: string | null;
+}
 
 const dashboard = new Hono<AuthEnv>();
 
@@ -25,6 +33,13 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 		tarefasAtrasadas,
 		tarefasHoje,
 		minhasTarefas,
+		etapasAtrasadas,
+		projetosSemResponsavel,
+		alertaTarefasAtrasadas,
+		alertaTarefasHoje,
+		alertaEtapasAtrasadas,
+		alertaProjetosSemResponsavel,
+		alertaProjetosProximoPrazo,
 	] = await Promise.all([
 		db.prepare("SELECT COUNT(*) AS n FROM clientes WHERE status = 'ativo'").first<{ n: number }>(),
 		db.prepare("SELECT COUNT(*) AS n FROM projetos WHERE status = 'em_andamento'").first<{ n: number }>(),
@@ -78,7 +93,61 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 			)
 			.bind(usuarioId)
 			.all(),
+		db.prepare(`SELECT COUNT(*) AS n FROM projeto_etapas e WHERE ${sqlEtapaAtrasada("e")}`).first<{ n: number }>(),
+		db
+			.prepare("SELECT COUNT(*) AS n FROM projetos WHERE gerente_id IS NULL AND status NOT IN ('concluido', 'cancelado')")
+			.first<{ n: number }>(),
+		// Alertas operacionais — cada consulta já limitada, combinadas abaixo
+		// num único feed curto (não é um sistema de notificações, só uma
+		// leitura direta dos mesmos dados já existentes).
+		db
+			.prepare(
+				`SELECT t.nome AS titulo, t.projeto_id AS projetoId, p.nome AS projetoNome, t.prazo AS data
+				 FROM projeto_tarefas t JOIN projetos p ON p.id = t.projeto_id
+				 WHERE ${sqlTarefaAtrasada("t")} ORDER BY t.prazo ASC LIMIT 5`,
+			)
+			.all<{ titulo: string; projetoId: number; projetoNome: string; data: string }>(),
+		db
+			.prepare(
+				`SELECT t.nome AS titulo, t.projeto_id AS projetoId, p.nome AS projetoNome, t.prazo AS data
+				 FROM projeto_tarefas t JOIN projetos p ON p.id = t.projeto_id
+				 WHERE t.status NOT IN ('concluida', 'cancelada') AND t.prazo = date('now') LIMIT 5`,
+			)
+			.all<{ titulo: string; projetoId: number; projetoNome: string; data: string }>(),
+		db
+			.prepare(
+				`SELECT e.nome AS titulo, e.projeto_id AS projetoId, p.nome AS projetoNome, e.data_fim_prevista AS data
+				 FROM projeto_etapas e JOIN projetos p ON p.id = e.projeto_id
+				 WHERE ${sqlEtapaAtrasada("e")} ORDER BY e.data_fim_prevista ASC LIMIT 5`,
+			)
+			.all<{ titulo: string; projetoId: number; projetoNome: string; data: string }>(),
+		db
+			.prepare(
+				`SELECT p.nome AS titulo, p.id AS projetoId, p.nome AS projetoNome
+				 FROM projetos p
+				 WHERE p.gerente_id IS NULL AND p.status NOT IN ('concluido', 'cancelado')
+				 ORDER BY p.criado_em DESC LIMIT 5`,
+			)
+			.all<{ titulo: string; projetoId: number; projetoNome: string }>(),
+		db
+			.prepare(
+				`SELECT p.nome AS titulo, p.id AS projetoId, p.nome AS projetoNome, p.prazo_previsto AS data
+				 FROM projetos p
+				 WHERE p.prazo_previsto IS NOT NULL
+				   AND p.prazo_previsto BETWEEN date('now') AND date('now', '+3 days')
+				   AND p.status NOT IN ('concluido', 'cancelado')
+				 ORDER BY p.prazo_previsto ASC LIMIT 5`,
+			)
+			.all<{ titulo: string; projetoId: number; projetoNome: string; data: string }>(),
 	]);
+
+	const alertas: Alerta[] = [
+		...alertaTarefasAtrasadas.results.map((r) => ({ tipo: "tarefa_atrasada" as const, ...r })),
+		...alertaEtapasAtrasadas.results.map((r) => ({ tipo: "etapa_atrasada" as const, ...r })),
+		...alertaTarefasHoje.results.map((r) => ({ tipo: "tarefa_hoje" as const, ...r })),
+		...alertaProjetosProximoPrazo.results.map((r) => ({ tipo: "projeto_proximo_prazo" as const, ...r })),
+		...alertaProjetosSemResponsavel.results.map((r) => ({ tipo: "projeto_sem_responsavel" as const, ...r, data: null })),
+	].slice(0, 10);
 
 	return c.json({
 		clientesAtivos: clientesAtivos?.n ?? 0,
@@ -91,6 +160,9 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 		tarefasAtrasadas: tarefasAtrasadas?.n ?? 0,
 		tarefasHoje: tarefasHoje?.n ?? 0,
 		minhasProximasTarefas: minhasTarefas.results,
+		etapasAtrasadas: etapasAtrasadas?.n ?? 0,
+		projetosSemResponsavel: projetosSemResponsavel?.n ?? 0,
+		alertas,
 	});
 });
 

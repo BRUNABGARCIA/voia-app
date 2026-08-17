@@ -264,8 +264,11 @@ const processosAutorizadosSchema = z.object({
 	projeto_ids: z.array(z.number().int().positive()),
 });
 
+// "possui_acesso" é derivado (nunca uma coluna própria): um contato só
+// consegue entrar no Portal se tiver senha_hash definida — a senha em si
+// nunca é retornada pela API.
 const SELECT_CONTATO =
-	"SELECT id, cliente_id, nome, email, telefone, ativo, ultimo_login_em, criado_em, atualizado_em FROM cliente_contatos";
+	"SELECT id, cliente_id, nome, email, telefone, ativo, (senha_hash IS NOT NULL) AS possui_acesso, ultimo_login_em, criado_em, atualizado_em FROM cliente_contatos";
 
 clientes.get(
 	"/:id/contatos",
@@ -380,6 +383,34 @@ clientes.patch(
 
 		const atualizado = await c.env.DB.prepare(`${SELECT_CONTATO} WHERE id = ?`).bind(contatoId).first();
 		return c.json({ contato: atualizado });
+	},
+);
+
+// Remover é seguro: cliente_contato_processos e sessoes_portal têm
+// ON DELETE CASCADE a partir de contato_id (migration 0014) — nenhuma
+// linha órfã fica para trás, e a pessoa perde o acesso ao Portal
+// imediatamente junto com o registro.
+clientes.delete(
+	"/:id/contatos/:contatoId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	async (c) => {
+		const clienteId = Number(c.req.param("id"));
+		const contatoId = Number(c.req.param("contatoId"));
+		if (!Number.isInteger(clienteId) || !Number.isInteger(contatoId)) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const resultado = await c.env.DB.prepare("DELETE FROM cliente_contatos WHERE id = ? AND cliente_id = ?")
+			.bind(contatoId, clienteId)
+			.run();
+
+		if (resultado.meta.changes === 0) {
+			return c.json({ error: "contato não encontrado" }, 404);
+		}
+
+		return c.json({ ok: true });
 	},
 );
 

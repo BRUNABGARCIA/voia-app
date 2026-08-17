@@ -6,6 +6,7 @@ import Tabs from "../components/Tabs";
 import ProgressoBar from "../components/ProgressoBar";
 import ClientePortalPanel from "../components/ClientePortalPanel";
 import { STATUS_BADGE, STATUS_LABEL, TIPO_LABEL, type Cliente, type ProjetoDoCliente } from "../lib/cliente-tipos";
+import { formatarData } from "../lib/projeto-tipos";
 
 const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
 const PERFIS_QUE_GERENCIAM_PORTAL = ["administrador", "gestor"];
@@ -95,10 +96,10 @@ export default function ClienteWorkspace() {
 				← Clientes
 			</button>
 
-			<div className="mt-2 flex items-start justify-between">
+			<div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 				<div>
-					<div className="flex items-center gap-3">
-						<h1 className="font-display text-2xl font-light text-voia-neutral-900">{cliente.nome}</h1>
+					<div className="flex flex-wrap items-center gap-3">
+						<h1 className="font-display text-2xl font-light text-voia-neutral-900 break-words">{cliente.nome}</h1>
 						<span className={`rounded-control px-2 py-1 text-xs font-medium ${STATUS_BADGE[cliente.status]}`}>
 							{STATUS_LABEL[cliente.status]}
 						</span>
@@ -175,12 +176,17 @@ export default function ClienteWorkspace() {
 										<th className="px-4 py-3 font-medium">Projeto</th>
 										<th className="px-4 py-3 font-medium">Status</th>
 										<th className="px-4 py-3 font-medium">Progresso</th>
+										<th className="px-4 py-3 font-medium">Prazo</th>
 										<th className="px-4 py-3 font-medium">Responsável</th>
 									</tr>
 								</thead>
 								<tbody>
 									{projetos.map((projeto) => (
-										<tr key={projeto.id} className="border-b border-voia-neutral-100 last:border-b-0">
+										<tr
+											key={projeto.id}
+											onClick={() => navigate(`/projetos/${projeto.id}`)}
+											className="cursor-pointer border-b border-voia-neutral-100 last:border-b-0 hover:bg-voia-beige-50"
+										>
 											<td className="px-4 py-3 text-voia-neutral-700">{projeto.codigo ?? "—"}</td>
 											<td className="px-4 py-3 font-medium text-voia-neutral-900">{projeto.nome}</td>
 											<td className="px-4 py-3 text-voia-neutral-700">
@@ -194,6 +200,7 @@ export default function ClienteWorkspace() {
 												<span className="text-xs text-voia-neutral-700">{projeto.progresso}%</span>
 											</div>
 										</td>
+											<td className="px-4 py-3 text-voia-neutral-700">{formatarData(projeto.prazo_previsto)}</td>
 											<td className="px-4 py-3 text-voia-neutral-700">{projeto.gerente_nome ?? "—"}</td>
 										</tr>
 									))}

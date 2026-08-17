@@ -147,3 +147,28 @@ export async function buscarAtualizacoesPublicas(db: D1Database, projetoId: numb
 		.all<AtualizacaoPublica>();
 	return results;
 }
+
+export interface DocumentoPublico {
+	id: number;
+	nome: string;
+	categoria: string;
+	descricao: string | null;
+	criadoEm: string;
+}
+
+// Nunca inclui storage_key (chave interna do futuro armazenamento) nem
+// autor_id — mesma régua desta camada de nunca vazar coluna administrativa
+// para fora. Enquanto não há armazenamento configurado, é só metadado; o
+// Portal mostra a existência do documento, não um link para baixá-lo.
+export async function buscarDocumentosPublicos(db: D1Database, projetoId: number): Promise<DocumentoPublico[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT id, nome, categoria, descricao, criado_em AS criadoEm
+			 FROM projeto_documentos
+			 WHERE projeto_id = ? AND visivel_cliente = 1
+			 ORDER BY criado_em DESC, id DESC`,
+		)
+		.bind(projetoId)
+		.all<DocumentoPublico>();
+	return results;
+}
