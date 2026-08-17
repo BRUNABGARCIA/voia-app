@@ -64,6 +64,15 @@ export default function AndamentoPanel({ projetoId, podeEditar }: { projetoId: n
 							<span className="absolute -left-[1.375rem] top-1 h-2.5 w-2.5 rounded-full bg-voia-gold-500" />
 							<div className="flex flex-wrap items-center gap-2">
 								<span className="font-medium text-voia-neutral-900">{atualizacao.titulo}</span>
+								{atualizacao.tipo_evento ? (
+									<span className="rounded-control bg-voia-info/15 px-2 py-0.5 text-xs font-medium text-voia-info">
+										Sistema
+									</span>
+								) : (
+									<span className="rounded-control bg-voia-gold-500/20 px-2 py-0.5 text-xs font-medium text-voia-green-800">
+										Atualização manual
+									</span>
+								)}
 								<span className="rounded-control bg-voia-beige-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-700">
 									{TIPO_ATUALIZACAO_LABEL[atualizacao.tipo]}
 								</span>

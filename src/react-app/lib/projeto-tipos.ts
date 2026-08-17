@@ -121,6 +121,8 @@ export interface Atualizacao {
 	titulo: string;
 	descricao: string | null;
 	tipo: TipoAtualizacao;
+	/** Só preenchido em eventos registrados automaticamente pelo sistema; null em atualizações manuais. */
+	tipo_evento: string | null;
 	visivel_cliente: number;
 	criado_em: string;
 	criado_por_nome: string;

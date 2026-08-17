@@ -13,6 +13,11 @@ interface UsuarioOpcao {
 	nome: string;
 }
 
+interface ProjetoResumo {
+	projeto: { gerente_id: number | null };
+	membros: { usuario_id: number }[];
+}
+
 interface FormState {
 	nome: string;
 	descricao: string;
@@ -53,6 +58,7 @@ export default function TarefaModal({
 	const editando = tarefa !== null;
 	const [form, setForm] = useState<FormState>(() => tarefaParaForm(tarefa));
 	const [usuarios, setUsuarios] = useState<UsuarioOpcao[]>([]);
+	const [idsPrioritarios, setIdsPrioritarios] = useState<Set<number>>(new Set());
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
 
@@ -61,7 +67,22 @@ export default function TarefaModal({
 			.then((res) => (res.ok ? (res.json() as Promise<{ usuarios: UsuarioOpcao[] }>) : null))
 			.then((data) => data && setUsuarios(data.usuarios))
 			.catch(() => {});
-	}, []);
+
+		// Membros do projeto (e o responsável principal) aparecem primeiro na
+		// lista de responsáveis — são quem realmente trabalha neste projeto.
+		fetch(`/api/projetos/${projetoId}`, { credentials: "same-origin" })
+			.then((res) => (res.ok ? (res.json() as Promise<ProjetoResumo>) : null))
+			.then((data) => {
+				if (!data) return;
+				const ids = new Set(data.membros.map((m) => m.usuario_id));
+				if (data.projeto.gerente_id) ids.add(data.projeto.gerente_id);
+				setIdsPrioritarios(ids);
+			})
+			.catch(() => {});
+	}, [projetoId]);
+
+	const usuariosPrioritarios = usuarios.filter((u) => idsPrioritarios.has(u.id));
+	const outrosUsuarios = usuarios.filter((u) => !idsPrioritarios.has(u.id));
 
 	function set<K extends keyof FormState>(campo: K) {
 		return (valor: FormState[K]) => setForm((atual) => ({ ...atual, [campo]: valor }));
@@ -211,11 +232,22 @@ export default function TarefaModal({
 						className="mt-1 w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 					>
 						<option value="">Nenhum</option>
-						{usuarios.map((u) => (
-							<option key={u.id} value={u.id}>
-								{u.nome}
-							</option>
-						))}
+						{usuariosPrioritarios.length > 0 && (
+							<optgroup label="Equipe do projeto">
+								{usuariosPrioritarios.map((u) => (
+									<option key={u.id} value={u.id}>
+										{u.nome}
+									</option>
+								))}
+							</optgroup>
+						)}
+						<optgroup label={usuariosPrioritarios.length > 0 ? "Outros usuários" : "Usuários"}>
+							{outrosUsuarios.map((u) => (
+								<option key={u.id} value={u.id}>
+									{u.nome}
+								</option>
+							))}
+						</optgroup>
 					</select>
 				</div>
 				<div className="grid grid-cols-2 gap-4">

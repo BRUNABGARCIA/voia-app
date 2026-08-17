@@ -240,8 +240,10 @@ export default function ProjetoWorkspace() {
 			{aba === "equipe" && (
 				<ProjetoEquipePanel
 					projetoId={projeto.id}
+					gerenteId={projeto.gerente_id}
 					gerenteNome={projeto.gerente_nome}
 					podeGerenciar={podeGerenciarEquipe}
+					onResponsavelAlterado={handleSaved}
 				/>
 			)}
 

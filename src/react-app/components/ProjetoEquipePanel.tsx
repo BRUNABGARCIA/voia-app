@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { FUNCAO_MEMBRO_LABEL, FUNCOES_MEMBRO, type FuncaoMembro, type MembroProjeto } from "../lib/projeto-tipos";
+import { FUNCAO_MEMBRO_LABEL, FUNCOES_MEMBRO, type FuncaoMembro, type MembroProjeto, type Projeto } from "../lib/projeto-tipos";
 
 interface UsuarioOpcao {
 	id: number;
@@ -8,12 +8,16 @@ interface UsuarioOpcao {
 
 export default function ProjetoEquipePanel({
 	projetoId,
+	gerenteId,
 	gerenteNome,
 	podeGerenciar,
+	onResponsavelAlterado,
 }: {
 	projetoId: number;
+	gerenteId: number | null;
 	gerenteNome: string | null;
 	podeGerenciar: boolean;
+	onResponsavelAlterado: (projeto: Projeto) => void;
 }) {
 	const [membros, setMembros] = useState<MembroProjeto[] | null>(null);
 	const [usuarios, setUsuarios] = useState<UsuarioOpcao[]>([]);
@@ -21,6 +25,9 @@ export default function ProjetoEquipePanel({
 	const [novoUsuarioId, setNovoUsuarioId] = useState("");
 	const [novaFuncao, setNovaFuncao] = useState<FuncaoMembro>("colaborador");
 	const [adicionando, setAdicionando] = useState(false);
+	const [editandoResponsavel, setEditandoResponsavel] = useState(false);
+	const [novoResponsavelId, setNovoResponsavelId] = useState(gerenteId ? String(gerenteId) : "");
+	const [salvandoResponsavel, setSalvandoResponsavel] = useState(false);
 
 	const carregarMembros = useCallback(() => {
 		fetch(`/api/projetos/${projetoId}/membros`, { credentials: "same-origin" })
@@ -43,6 +50,34 @@ export default function ProjetoEquipePanel({
 			.then((data) => data && setUsuarios(data.usuarios))
 			.catch(() => {});
 	}, [podeGerenciar]);
+
+	useEffect(() => {
+		setNovoResponsavelId(gerenteId ? String(gerenteId) : "");
+	}, [gerenteId]);
+
+	async function salvarResponsavel() {
+		setError(null);
+		setSalvandoResponsavel(true);
+		try {
+			const res = await fetch(`/api/projetos/${projetoId}`, {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				credentials: "same-origin",
+				body: JSON.stringify({ gerente_id: novoResponsavelId ? Number(novoResponsavelId) : null }),
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => null)) as { error?: string } | null;
+				throw new Error(body?.error ?? "não foi possível alterar o responsável principal");
+			}
+			const { projeto } = (await res.json()) as { projeto: Projeto };
+			onResponsavelAlterado(projeto);
+			setEditandoResponsavel(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "não foi possível alterar o responsável principal");
+		} finally {
+			setSalvandoResponsavel(false);
+		}
+	}
 
 	async function adicionarMembro() {
 		if (!novoUsuarioId) return;
@@ -102,8 +137,55 @@ export default function ProjetoEquipePanel({
 	return (
 		<div className="mt-6 space-y-6">
 			<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
-				<h2 className="font-display text-lg text-voia-green-900">Responsável principal</h2>
-				<p className="mt-2 text-sm text-voia-neutral-900">{gerenteNome ?? "Nenhum responsável definido"}</p>
+				<div className="flex items-center justify-between">
+					<h2 className="font-display text-lg text-voia-green-900">Responsável principal</h2>
+					{podeGerenciar && !editandoResponsavel && (
+						<button
+							type="button"
+							onClick={() => setEditandoResponsavel(true)}
+							className="text-xs font-medium text-voia-green-800 hover:underline"
+						>
+							{gerenteNome ? "Trocar" : "Definir"}
+						</button>
+					)}
+				</div>
+
+				{editandoResponsavel ? (
+					<div className="mt-3 flex flex-wrap items-center gap-3">
+						<select
+							value={novoResponsavelId}
+							onChange={(e) => setNovoResponsavelId(e.target.value)}
+							className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm text-voia-neutral-900 outline-none focus:border-voia-gold-500"
+						>
+							<option value="">Nenhum</option>
+							{usuarios.map((u) => (
+								<option key={u.id} value={u.id}>
+									{u.nome}
+								</option>
+							))}
+						</select>
+						<button
+							type="button"
+							onClick={salvarResponsavel}
+							disabled={salvandoResponsavel}
+							className="rounded-control bg-voia-gold-500 px-3 py-1.5 text-sm font-medium text-voia-green-950 hover:bg-voia-gold-400 disabled:opacity-(--opacity-disabled)"
+						>
+							{salvandoResponsavel ? "Salvando…" : "Salvar"}
+						</button>
+						<button
+							type="button"
+							onClick={() => {
+								setEditandoResponsavel(false);
+								setNovoResponsavelId(gerenteId ? String(gerenteId) : "");
+							}}
+							className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-(--color-surface)"
+						>
+							Cancelar
+						</button>
+					</div>
+				) : (
+					<p className="mt-2 text-sm text-voia-neutral-900">{gerenteNome ?? "Nenhum responsável definido"}</p>
+				)}
 			</div>
 
 			<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
