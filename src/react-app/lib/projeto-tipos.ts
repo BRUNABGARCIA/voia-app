@@ -35,6 +35,12 @@ export interface TipoServico {
 	nome: string;
 }
 
+export interface ResumoOperacional {
+	etapaAtual: { id: number; nome: string; status: StatusEtapa; data_fim_prevista: string | null } | null;
+	tarefasAtrasadas: number;
+	proximoPrazo: string | null;
+}
+
 export interface MembroProjeto {
 	usuario_id: number;
 	funcao: FuncaoMembro;

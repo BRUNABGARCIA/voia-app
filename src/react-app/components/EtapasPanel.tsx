@@ -60,6 +60,11 @@ export default function EtapasPanel({
 	const [editandoTarefa, setEditandoTarefa] = useState<Tarefa | null>(null);
 	const [adicionandoEstrutura, setAdicionandoEstrutura] = useState(false);
 	const [temTiposDisponiveis, setTemTiposDisponiveis] = useState(false);
+	// Id da etapa/tarefa com uma mudança de status em voo — desabilita só os
+	// controles daquele item (evita duplo clique/corrida) sem travar o resto
+	// da tela.
+	const [salvandoEtapaId, setSalvandoEtapaId] = useState<number | null>(null);
+	const [salvandoTarefaId, setSalvandoTarefaId] = useState<number | null>(null);
 
 	const carregar = useCallback(() => {
 		Promise.all([
@@ -80,6 +85,23 @@ export default function EtapasPanel({
 			.catch(() => setError("Não foi possível carregar as etapas."));
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [projetoId]);
+
+	// Mais leve que carregar(): só re-busca as etapas (que podem ter mudado
+	// de status automaticamente pelo backend) sem refazer a busca de
+	// tarefas, já que quem chama isso normalmente já tem a tarefa
+	// atualizada em mãos (resposta do PATCH).
+	const recarregarEtapas = useCallback(() => {
+		fetch(`/api/projetos/${projetoId}/etapas`, { credentials: "same-origin" })
+			.then((res) => {
+				if (!res.ok) throw new Error("não foi possível carregar as etapas");
+				return res.json() as Promise<EtapasResposta>;
+			})
+			.then((etapasData) => {
+				setDados(etapasData);
+				onProgressoChange(etapasData.progresso);
+			})
+			.catch(() => setError("Não foi possível atualizar as etapas."));
+	}, [projetoId, onProgressoChange]);
 
 	useEffect(() => {
 		carregar();
@@ -105,7 +127,12 @@ export default function EtapasPanel({
 	const etapaAtual = useMemo(() => dados?.etapas.find((e) => e.status !== "concluida") ?? null, [dados]);
 
 	async function alterarStatusEtapa(etapa: Etapa, status: string) {
+		if (!dados) return;
 		setError(null);
+		const etapasAntes = dados.etapas;
+		// Otimista: reflete o novo status já na tela, sem esperar a rede.
+		setDados({ ...dados, etapas: etapasAntes.map((e) => (e.id === etapa.id ? { ...e, status: status as Etapa["status"] } : e)) });
+		setSalvandoEtapaId(etapa.id);
 		try {
 			const res = await fetch(`/api/projetos/${projetoId}/etapas/${etapa.id}`, {
 				method: "PATCH",
@@ -113,10 +140,13 @@ export default function EtapasPanel({
 				credentials: "same-origin",
 				body: JSON.stringify({ status }),
 			});
-			if (!res.ok) throw new Error("não foi possível alterar o status");
-			carregar();
+			if (!res.ok) throw new Error("não foi possível alterar o status da etapa");
+			recarregarEtapas();
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível alterar o status");
+			setDados((atual) => (atual ? { ...atual, etapas: etapasAntes } : atual));
+			setError(err instanceof Error ? err.message : "não foi possível alterar o status da etapa");
+		} finally {
+			setSalvandoEtapaId(null);
 		}
 	}
 
@@ -167,6 +197,18 @@ export default function EtapasPanel({
 
 	async function alterarStatusTarefa(tarefa: Tarefa, status: string) {
 		setError(null);
+		const tarefasAntes = tarefas;
+		const concluida = status === "concluida";
+		// Otimista: marca/desmarca na hora — o checkbox e o select nunca ficam
+		// "esperando" a rede para refletir o clique.
+		setTarefas((atual) =>
+			atual.map((t) =>
+				t.id === tarefa.id
+					? { ...t, status: status as Tarefa["status"], data_conclusao: concluida ? new Date().toISOString().slice(0, 10) : null }
+					: t,
+			),
+		);
+		setSalvandoTarefaId(tarefa.id);
 		try {
 			const res = await fetch(`/api/projetos/${projetoId}/tarefas/${tarefa.id}`, {
 				method: "PATCH",
@@ -174,10 +216,20 @@ export default function EtapasPanel({
 				credentials: "same-origin",
 				body: JSON.stringify({ status }),
 			});
-			if (!res.ok) throw new Error("não foi possível alterar o status");
-			carregar();
+			if (!res.ok) throw new Error("não foi possível alterar o status da tarefa");
+			const { tarefa: tarefaAtualizada, progresso } = (await res.json()) as { tarefa: Tarefa; progresso: number };
+			// Confirma com o dado real do servidor (ex.: "atrasada" recalculada)
+			// e só então busca as etapas de novo — a etapa pode ter mudado de
+			// status sozinha por causa dessa tarefa.
+			setTarefas((atual) => atual.map((t) => (t.id === tarefaAtualizada.id ? tarefaAtualizada : t)));
+			setDados((atual) => (atual ? { ...atual, progresso } : atual));
+			onProgressoChange(progresso);
+			recarregarEtapas();
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível alterar o status");
+			setTarefas(tarefasAntes);
+			setError(err instanceof Error ? err.message : "não foi possível alterar o status da tarefa");
+		} finally {
+			setSalvandoTarefaId(null);
 		}
 	}
 
@@ -351,11 +403,12 @@ export default function EtapasPanel({
 										</div>
 
 										{podeEditar && (
-											<div className="flex shrink-0 flex-wrap items-center gap-2">
+											<div className={`flex shrink-0 flex-wrap items-center gap-2 ${salvandoEtapaId === etapa.id ? "opacity-60" : ""}`}>
 												<select
 													value={etapa.status}
 													onChange={(e) => alterarStatusEtapa(etapa, e.target.value)}
-													className="rounded-control border border-voia-neutral-100 px-2 py-1 text-xs text-voia-neutral-900 outline-none focus:border-voia-gold-500"
+													disabled={salvandoEtapaId === etapa.id}
+													className="rounded-control border border-voia-neutral-100 px-2 py-1 text-xs text-voia-neutral-900 outline-none focus:border-voia-gold-500 disabled:opacity-(--opacity-disabled)"
 												>
 													{STATUS_ETAPA.map((s) => (
 														<option key={s} value={s}>
@@ -428,13 +481,13 @@ export default function EtapasPanel({
 															key={tarefa.id}
 															className="flex flex-col gap-2 rounded-control border border-voia-neutral-100 p-2 sm:flex-row sm:items-center sm:justify-between"
 														>
-															<div className="flex flex-1 items-start gap-2">
+															<div className={`flex flex-1 items-start gap-2 ${salvandoTarefaId === tarefa.id ? "opacity-60" : ""}`}>
 																<input
 																	type="checkbox"
 																	checked={tarefa.status === "concluida"}
-																	disabled={!podeEditar}
+																	disabled={!podeEditar || salvandoTarefaId === tarefa.id}
 																	onChange={(e) => alterarStatusTarefa(tarefa, e.target.checked ? "concluida" : "pendente")}
-																	className="mt-0.5 h-4 w-4 rounded border-voia-neutral-100 text-voia-gold-500 focus:ring-voia-gold-500"
+																	className="mt-0.5 h-4 w-4 rounded border-voia-neutral-100 text-voia-gold-500 focus:ring-voia-gold-500 disabled:opacity-(--opacity-disabled)"
 																	aria-label={`Marcar "${tarefa.nome}" como concluída`}
 																/>
 																<div className="flex-1">
@@ -470,7 +523,8 @@ export default function EtapasPanel({
 																	<select
 																		value={tarefa.status}
 																		onChange={(e) => alterarStatusTarefa(tarefa, e.target.value)}
-																		className="rounded-control border border-voia-neutral-100 px-2 py-1 text-xs text-voia-neutral-900 outline-none focus:border-voia-gold-500"
+																		disabled={salvandoTarefaId === tarefa.id}
+																		className="rounded-control border border-voia-neutral-100 px-2 py-1 text-xs text-voia-neutral-900 outline-none focus:border-voia-gold-500 disabled:opacity-(--opacity-disabled)"
 																	>
 																		{STATUS_TAREFA.map((s) => (
 																			<option key={s} value={s}>

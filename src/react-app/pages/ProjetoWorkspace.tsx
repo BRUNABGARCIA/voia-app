@@ -10,12 +10,15 @@ import Tabs from "../components/Tabs";
 import {
 	PRIORIDADE_BADGE,
 	PRIORIDADE_LABEL,
+	STATUS_ETAPA_BADGE,
+	STATUS_ETAPA_LABEL,
 	STATUS_PROJETO_BADGE,
 	STATUS_PROJETO_LABEL,
 	formatarData,
 	formatarMoeda,
 	projetoAtrasado,
 	type Projeto,
+	type ResumoOperacional,
 	type TipoServico,
 } from "../lib/projeto-tipos";
 
@@ -46,6 +49,7 @@ export default function ProjetoWorkspace() {
 
 	const [projeto, setProjeto] = useState<Projeto | null>(null);
 	const [tiposServico, setTiposServico] = useState<TipoServico[]>([]);
+	const [resumo, setResumo] = useState<ResumoOperacional | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [aba, setAba] = useState("visao-geral");
 	const [editando, setEditando] = useState(false);
@@ -58,18 +62,23 @@ export default function ProjetoWorkspace() {
 		fetch(`/api/projetos/${id}`, { credentials: "same-origin" })
 			.then((res) => {
 				if (!res.ok) throw new Error("projeto não encontrado");
-				return res.json() as Promise<{ projeto: Projeto; tiposServico: TipoServico[] }>;
+				return res.json() as Promise<{ projeto: Projeto; tiposServico: TipoServico[]; resumoOperacional: ResumoOperacional }>;
 			})
 			.then((data) => {
 				setProjeto(data.projeto);
 				setTiposServico(data.tiposServico);
+				setResumo(data.resumoOperacional);
 			})
 			.catch(() => setError("Não foi possível carregar este projeto."));
 	}, [id]);
 
+	// Carrega no primeiro acesso e sempre que o usuário volta para a Visão
+	// Geral — mantém "etapa atual"/"tarefas atrasadas"/"próximo prazo" em dia
+	// sem ficar refazendo essa consulta enquanto a pessoa trabalha nas
+	// outras abas (Etapas e Tarefas já tem sua própria atualização).
 	useEffect(() => {
-		carregar();
-	}, [carregar]);
+		if (aba === "visao-geral") carregar();
+	}, [aba, carregar]);
 
 	function handleSaved(atualizado: Projeto) {
 		setProjeto(atualizado);
@@ -193,6 +202,50 @@ export default function ProjetoWorkspace() {
 							</div>
 						)}
 					</div>
+
+					{resumo && (
+						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+							<h2 className="font-display text-lg text-voia-green-900">Andamento</h2>
+							<div className="mt-4 space-y-3">
+								<div>
+									<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">
+										Etapa atual
+									</span>
+									{resumo.etapaAtual ? (
+										<div className="mt-1 flex flex-wrap items-center gap-2">
+											<span className="text-sm text-voia-neutral-900">{resumo.etapaAtual.nome}</span>
+											<span
+												className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_ETAPA_BADGE[resumo.etapaAtual.status]}`}
+											>
+												{STATUS_ETAPA_LABEL[resumo.etapaAtual.status]}
+											</span>
+											{resumo.etapaAtual.data_fim_prevista && (
+												<span className="text-xs text-voia-neutral-500">
+													Prazo: {formatarData(resumo.etapaAtual.data_fim_prevista)}
+												</span>
+											)}
+										</div>
+									) : (
+										<p className="mt-1 text-sm text-voia-neutral-500">Todas as etapas concluídas.</p>
+									)}
+								</div>
+								{resumo.tarefasAtrasadas > 0 && (
+									<p className="text-sm text-voia-danger">
+										{resumo.tarefasAtrasadas}{" "}
+										{resumo.tarefasAtrasadas === 1 ? "tarefa atrasada" : "tarefas atrasadas"}
+									</p>
+								)}
+								{resumo.proximoPrazo && (
+									<div>
+										<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">
+											Próximo prazo
+										</span>
+										<span className="text-sm text-voia-neutral-900">{formatarData(resumo.proximoPrazo)}</span>
+									</div>
+								)}
+							</div>
+						</div>
+					)}
 
 					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Endereço da obra</h2>

@@ -34,7 +34,7 @@ export default function CronogramaView({ etapas, tarefasPorEtapa }: { etapas: Et
 						<th className="px-3 py-2 font-medium">Etapa / Tarefa</th>
 						<th className="px-3 py-2 font-medium">Período previsto</th>
 						<th className="px-3 py-2 font-medium">Status</th>
-						<th className="px-3 py-2 font-medium">Progresso</th>
+						<th className="px-3 py-2 font-medium">Progresso / Responsável</th>
 					</tr>
 				</thead>
 				<tbody>

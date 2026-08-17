@@ -305,7 +305,42 @@ projetos.get("/:id", withSession, requireAuth, async (c) => {
 		.bind(id)
 		.all();
 
-	return c.json({ projeto, tiposServico, membros });
+	// Resumo compacto para a Visão Geral (etapa atual, tarefas atrasadas,
+	// próximo prazo relevante) — três leituras leves, sem trazer a lista
+	// inteira de etapas/tarefas (isso só é carregado quando a aba Etapas e
+	// Tarefas é aberta).
+	const [etapaAtual, tarefasAtrasadas, proximoPrazo] = await Promise.all([
+		c.env.DB.prepare(
+			"SELECT id, nome, status, data_fim_prevista FROM projeto_etapas WHERE projeto_id = ? AND status <> 'concluida' ORDER BY ordem, id LIMIT 1",
+		)
+			.bind(id)
+			.first(),
+		c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projeto_tarefas t WHERE t.projeto_id = ? AND ${sqlTarefaAtrasada("t")}`)
+			.bind(id)
+			.first<{ n: number }>(),
+		c.env.DB.prepare(
+			`SELECT MIN(prazo) AS proximo FROM (
+				SELECT prazo FROM projeto_tarefas
+				 WHERE projeto_id = ? AND status NOT IN ('concluida', 'cancelada') AND prazo IS NOT NULL AND prazo >= date('now')
+				UNION ALL
+				SELECT data_fim_prevista AS prazo FROM projeto_etapas
+				 WHERE projeto_id = ? AND status <> 'concluida' AND data_fim_prevista IS NOT NULL AND data_fim_prevista >= date('now')
+			)`,
+		)
+			.bind(id, id)
+			.first<{ proximo: string | null }>(),
+	]);
+
+	return c.json({
+		projeto,
+		tiposServico,
+		membros,
+		resumoOperacional: {
+			etapaAtual: etapaAtual ?? null,
+			tarefasAtrasadas: tarefasAtrasadas?.n ?? 0,
+			proximoPrazo: proximoPrazo?.proximo ?? null,
+		},
+	});
 });
 
 projetos.post("/", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
