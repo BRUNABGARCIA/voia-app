@@ -11,12 +11,12 @@
 // IDEMPOTÊNCIA: para cada tipo de serviço, o script só cria etapas/tarefas
 // se esse tipo ainda não tiver NENHUMA etapa modelo cadastrada
 // (total_etapas_modelo === 0, já retornado por GET /api/tipos-servico).
-// Rodar de novo não duplica nada — e o mesmo mecanismo preserva
-// automaticamente o Arquitetônico (piloto aprovado na Rodada F2, 8
-// etapas/44 tarefas) sem nenhum caso especial: ele já tem etapas, então é
-// sempre pulado. Nunca toca em projetos já criados (só existem etapas de
-// PROJETO por cópia do modelo no momento da criação — editar o modelo
-// depois não afeta projetos existentes, como já validado na F2).
+// Rodar de novo não duplica nada — qualquer tipo que já tenha etapas
+// (de qualquer origem, cadastradas por este script ou manualmente) é
+// sempre pulado, sem nenhum caso especial por tipo. Nunca toca em
+// projetos já criados (só existem etapas de PROJETO por cópia do modelo
+// no momento da criação — editar o modelo depois não afeta projetos
+// existentes, como já validado na Etapa E).
 //
 // Os tipos de serviço são resolvidos por NOME (não por id fixo) contra o
 // catálogo real em tipos_servico — se um nome esperado não existir, o

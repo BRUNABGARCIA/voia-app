@@ -1,14 +1,13 @@
 // Dados dos modelos padrão de processo (etapas + tarefas) por Tipo de
-// Serviço — Etapa F, Rodada F3.
+// Serviço — Etapa F.
 //
-// O Arquitetônico (piloto aprovado na Rodada F2, com 8 etapas / 44
-// tarefas) NÃO aparece aqui de propósito: scripts/seed-tipos-servico-modelos.mjs
-// só atua sobre tipos de serviço que ainda não têm nenhuma etapa modelo
-// cadastrada, então incluir o Arquitetônico aqui seria irrelevante (seria
-// sempre ignorado) e arriscaria divergir do piloto já validado.
+// Os 16 tipos de serviço do catálogo estão todos representados aqui,
+// incluindo o Arquitetônico. O modelo piloto da Rodada F2 nunca chegou a
+// ser aplicado em produção — confirmado remotamente com 0 etapas para
+// esse tipo —, então o Arquitetônico passou a ser tratado igual a
+// qualquer outro tipo da biblioteca, sem nenhum caso especial.
 //
-// Convenções usadas em todos os modelos abaixo (mesmo padrão do piloto
-// Arquitetônico):
+// Convenções usadas em todos os modelos abaixo:
 //   - prazo_dias: null quando o prazo depende do porte/contrato do
 //     projeto e um número fixo seria inventado sem base real (ex.:
 //     acompanhamento de exigências de órgãos públicos, execução de obra).
@@ -22,10 +21,9 @@
 //     inventado).
 //   - prioridade_padrao: sempre "normal" (padrão neutro; ajustável depois
 //     por projeto).
-//   - descricao: null em todas as etapas/tarefas, mesma convenção do
-//     piloto Arquitetônico aprovado na F2. A coluna já existe no schema
-//     (migrations 0011/0016) e pode ser preenchida depois, por etapa,
-//     sem nenhuma alteração de schema.
+//   - descricao: null em todas as etapas/tarefas. A coluna já existe no
+//     schema (migrations 0011/0016) e pode ser preenchida depois, por
+//     etapa, sem nenhuma alteração de schema.
 
 export const MODELOS = [
 	{
@@ -87,6 +85,111 @@ export const MODELOS = [
 					"Organizar documentação aprovada para entrega",
 					"Entregar aprovação ao cliente",
 					"Encerrar processo técnico",
+				],
+			},
+		],
+	},
+	{
+		nomeTipoServico: "Arquitetônico",
+		etapas: [
+			{
+				nome: "Briefing e Levantamento",
+				prazo_dias: 3,
+				visivel_cliente: true,
+				tarefas: [
+					"Realizar reunião inicial de briefing com o cliente",
+					"Definir programa de necessidades",
+					"Realizar levantamento cadastral do imóvel/terreno",
+					"Analisar características do terreno (topografia, orientação, entorno)",
+					"Levantar legislação e condicionantes urbanísticas aplicáveis",
+					"Reunir referências e preferências do cliente",
+				],
+			},
+			{
+				nome: "Estudo Preliminar",
+				prazo_dias: 5,
+				visivel_cliente: true,
+				tarefas: [
+					"Definir implantação no terreno",
+					"Desenvolver layout e distribuição de ambientes",
+					"Estudar fluxos e funcionalidade dos espaços",
+					"Desenvolver estudo volumétrico",
+					"Elaborar proposta de estudo preliminar",
+					"Apresentar estudo preliminar ao cliente e registrar retorno",
+				],
+			},
+			{
+				nome: "Anteprojeto",
+				prazo_dias: 7,
+				visivel_cliente: true,
+				tarefas: [
+					"Desenvolver plantas do anteprojeto",
+					"Desenvolver cortes do anteprojeto",
+					"Desenvolver fachadas do anteprojeto",
+					"Definir materiais e acabamentos preliminares",
+					"Consolidar anteprojeto com base nas definições aprovadas",
+					"Revisar anteprojeto com o cliente",
+				],
+			},
+			{
+				nome: "Projeto Legal",
+				prazo_dias: 7,
+				visivel_cliente: true,
+				tarefas: [
+					"Elaborar documentação técnica do projeto legal",
+					"Preparar peças gráficas exigidas para aprovação",
+					"Conferir conformidade com a legislação vigente",
+					"Preparar processo para protocolo/aprovação",
+					"Protocolar projeto legal no órgão competente",
+				],
+			},
+			{
+				nome: "Compatibilização",
+				prazo_dias: 5,
+				visivel_cliente: false,
+				tarefas: [
+					"Compatibilizar com o projeto estrutural",
+					"Compatibilizar com o projeto elétrico",
+					"Compatibilizar com o projeto hidrossanitário",
+					"Compatibilizar com demais projetos complementares",
+					"Consolidar versão compatibilizada do projeto",
+				],
+			},
+			{
+				nome: "Projeto Executivo",
+				prazo_dias: 10,
+				visivel_cliente: false,
+				tarefas: [
+					"Desenvolver plantas executivas",
+					"Definir cotas e níveis",
+					"Detalhar esquadrias",
+					"Elaborar cortes executivos",
+					"Elaborar fachadas executivas",
+					"Revisar consistência do projeto executivo",
+				],
+			},
+			{
+				nome: "Detalhamentos",
+				prazo_dias: 5,
+				visivel_cliente: false,
+				tarefas: [
+					"Detalhar áreas molhadas",
+					"Elaborar paginações de revestimento",
+					"Detalhar bancadas e marcenaria",
+					"Elaborar detalhes construtivos",
+					"Especificar materiais de acabamento final",
+					"Realizar revisão técnica geral do projeto",
+				],
+			},
+			{
+				nome: "Entrega Final",
+				prazo_dias: 2,
+				visivel_cliente: true,
+				tarefas: [
+					"Organizar arquivos finais do projeto",
+					"Emitir versão final do projeto",
+					"Realizar conferência final da documentação",
+					"Entregar projeto ao cliente",
 				],
 			},
 		],
