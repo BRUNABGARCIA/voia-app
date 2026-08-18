@@ -22,22 +22,46 @@
 //   node scripts/auditar-migrations-remotas.mjs
 //
 // USO (remoto — só com autorização explícita, nunca automático):
-//   VOIA_D1_REMOTE=SIM node scripts/auditar-migrations-remotas.mjs
-// Sem VOIA_D1_REMOTE=SIM, o script sempre consulta o banco D1 LOCAL
-// (--local do wrangler), nunca o remoto — mesmo padrão de segurança já
-// usado em scripts/seed-tipos-servico-modelos.mjs (recusa remoto por
-// padrão, exige confirmação explícita via variável de ambiente).
+//   node scripts/auditar-migrations-remotas.mjs --remote
+//   (ou, equivalente: VOIA_D1_REMOTE=SIM node scripts/auditar-migrations-remotas.mjs)
+// Sem "--remote" (nem VOIA_D1_REMOTE=SIM), o script sempre consulta o banco
+// D1 LOCAL (--local do wrangler), nunca o remoto — mesmo padrão de
+// segurança já usado em scripts/seed-tipos-servico-modelos.mjs (recusa
+// remoto por padrão, exige confirmação explícita).
+//
+// EXECUÇÃO DO WRANGLER — compatível com Windows: em vez de depender de
+// spawnSync/execFileSync("npx", ...), que falha com ENOENT no Windows
+// CMD (lá "npx" é um shim .cmd resolvido pelo shell, e execFileSync não
+// passa pelo shell por padrão — nem trocar para "npx.cmd" resolve sozinho
+// em todas as configurações), este script invoca o Wrangler já instalado
+// localmente pelo próprio node: `node <repo>/node_modules/wrangler/bin/
+// wrangler.js ...`. Isso é idêntico ao que "npx wrangler" acabaria
+// executando de qualquer forma, só sem depender de PATH, shim de shell ou
+// resolução de extensão — funciona igual em Linux/macOS/Windows, sem
+// `shell: true` (então os argumentos continuam passados literalmente,
+// sem nenhuma re-interpretação por um shell).
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const WRANGLER_JS = path.join(SCRIPT_DIR, "..", "node_modules", "wrangler", "bin", "wrangler.js");
+
+if (!existsSync(WRANGLER_JS)) {
+	console.error(`Wrangler não encontrado em ${WRANGLER_JS}. Rode "npm install" na raiz do projeto antes de usar este script.`);
+	process.exit(1);
+}
 
 const DATABASE_NAME = "voia-db";
-const REMOTO_CONFIRMADO = process.env.VOIA_D1_REMOTE === "SIM";
+const REMOTO_CONFIRMADO = process.argv.includes("--remote") || process.env.VOIA_D1_REMOTE === "SIM";
 const ALVO = REMOTO_CONFIRMADO ? "--remote" : "--local";
 
 function executarSql(sql) {
 	const saida = execFileSync(
-		"npx",
-		["wrangler", "d1", "execute", DATABASE_NAME, ALVO, "--json", "--command", sql],
+		process.execPath,
+		[WRANGLER_JS, "d1", "execute", DATABASE_NAME, ALVO, "--json", "--command", sql],
 		{ encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
 	);
 	// wrangler --json emite um array de resultados (um por statement); cada
@@ -216,7 +240,7 @@ async function avaliarAssert(assert) {
 async function main() {
 	console.log(`Alvo: ${REMOTO_CONFIRMADO ? "REMOTO (voia-db --remote)" : "LOCAL (voia-db --local)"}`);
 	if (!REMOTO_CONFIRMADO) {
-		console.log("Defina VOIA_D1_REMOTE=SIM para consultar o banco remoto. Sem isso, sempre consulta o local.\n");
+		console.log("Passe --remote (ou defina VOIA_D1_REMOTE=SIM) para consultar o banco remoto. Sem isso, sempre consulta o local.\n");
 	} else {
 		console.log("⚠ Consultando o banco REMOTO — somente leitura (SELECT/PRAGMA), nenhuma escrita será feita.\n");
 	}
