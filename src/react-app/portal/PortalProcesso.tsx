@@ -9,6 +9,7 @@ import {
 	type EtapaPortal,
 	type ProcessoDetalhePortal,
 } from "../lib/portal-tipos";
+import { baixarArquivo } from "../lib/download";
 
 /** Símbolo amigável de andamento, sem jargão interno: ✓ concluída, ● em andamento/atrasada, ○ ainda não começou. */
 function simboloEtapa(etapa: EtapaPortal): string {
@@ -36,6 +37,8 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 	const [naoAutorizado, setNaoAutorizado] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [expandidas, setExpandidas] = useState<Set<number>>(new Set());
+	const [baixandoId, setBaixandoId] = useState<number | null>(null);
+	const [erroDownload, setErroDownload] = useState<string | null>(null);
 
 	function alternarExpandida(etapaId: number) {
 		setExpandidas((atual) => {
@@ -44,6 +47,19 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 			else novo.add(etapaId);
 			return novo;
 		});
+	}
+
+	async function baixar(processoId: number, documentoId: number, nome: string) {
+		if (baixandoId !== null) return; // evita duplo clique disparar dois downloads
+		setErroDownload(null);
+		setBaixandoId(documentoId);
+		try {
+			await baixarArquivo(`/api/portal/processos/${processoId}/documentos/${documentoId}/download`, nome);
+		} catch (err) {
+			setErroDownload(err instanceof Error ? err.message : "não foi possível baixar o arquivo");
+		} finally {
+			setBaixandoId(null);
+		}
 	}
 
 	useEffect(() => {
@@ -227,6 +243,7 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 
 			<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 				<h2 className="font-display text-lg text-voia-green-900">Documentos</h2>
+				{erroDownload && <p className="mt-2 text-sm text-voia-danger">{erroDownload}</p>}
 				{documentos.length === 0 ? (
 					<p className="mt-3 text-sm text-voia-neutral-500">Nenhum documento disponibilizado ainda.</p>
 				) : (
@@ -242,12 +259,14 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 									<span className="text-xs text-voia-neutral-500">{formatarTamanhoArquivo(doc.tamanhoBytes)}</span>
 								) : null}
 								{doc.possuiArquivo ? (
-									<a
-										href={`/api/portal/processos/${processo.id}/documentos/${doc.id}/download`}
-										className="text-xs font-medium text-voia-green-800 hover:underline"
+									<button
+										type="button"
+										onClick={() => baixar(processo.id, doc.id, doc.nome)}
+										disabled={baixandoId === doc.id}
+										className="text-xs font-medium text-voia-green-800 hover:underline disabled:opacity-(--opacity-disabled)"
 									>
-										Baixar
-									</a>
+										{baixandoId === doc.id ? "Baixando…" : "Baixar"}
+									</button>
 								) : (
 									<span className="text-xs text-voia-neutral-500">Arquivo não anexado</span>
 								)}

@@ -7,6 +7,7 @@ import {
 	type Documento,
 	type Etapa,
 } from "../lib/projeto-tipos";
+import { baixarArquivo } from "../lib/download";
 
 function formatarDataHora(valor: string): string {
 	const data = new Date(valor.includes("T") ? valor : `${valor.replace(" ", "T")}Z`);
@@ -30,6 +31,7 @@ export default function DocumentosPanel({
 	const [criando, setCriando] = useState(false);
 	const [editando, setEditando] = useState<Documento | null>(null);
 	const [removendoId, setRemovendoId] = useState<number | null>(null);
+	const [baixandoId, setBaixandoId] = useState<number | null>(null);
 
 	const carregar = useCallback(() => {
 		const params = categoriaFiltro ? `?categoria=${categoriaFiltro}` : "";
@@ -60,6 +62,22 @@ export default function DocumentosPanel({
 		setCriando(false);
 		setEditando(null);
 		carregar();
+	}
+
+	async function baixar(documento: Documento) {
+		if (baixandoId !== null) return; // evita duplo clique disparar dois downloads
+		setError(null);
+		setBaixandoId(documento.id);
+		try {
+			await baixarArquivo(
+				`/api/projetos/${projetoId}/documentos/${documento.id}/download`,
+				documento.nome_arquivo_original ?? documento.nome,
+			);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "não foi possível baixar o arquivo");
+		} finally {
+			setBaixandoId(null);
+		}
 	}
 
 	async function remover(documento: Documento) {
@@ -156,12 +174,14 @@ export default function DocumentosPanel({
 							</div>
 							<div className="flex shrink-0 items-center gap-3">
 								{doc.possui_arquivo === 1 && (
-									<a
-										href={`/api/projetos/${projetoId}/documentos/${doc.id}/download`}
-										className="text-xs font-medium text-voia-green-800 hover:underline"
+									<button
+										type="button"
+										onClick={() => baixar(doc)}
+										disabled={baixandoId === doc.id}
+										className="text-xs font-medium text-voia-green-800 hover:underline disabled:opacity-(--opacity-disabled)"
 									>
-										Baixar
-									</a>
+										{baixandoId === doc.id ? "Baixando…" : "Baixar"}
+									</button>
 								)}
 								{podeEditar && (
 									<>

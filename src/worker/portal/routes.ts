@@ -201,6 +201,10 @@ portal.get("/processos/:id/documentos/:documentoId/download", withPortalSession,
 			"Content-Type": documento.mimeType || "application/octet-stream",
 			"Content-Disposition": contentDispositionAnexo(documento.nomeArquivoOriginal ?? documento.nome),
 			"Content-Length": String(objeto.size),
+			// Nunca em cache compartilhado: a resposta depende da sessão do
+			// contato e da autorização por processo, nunca é a mesma para
+			// visitantes diferentes.
+			"Cache-Control": "private, no-store",
 		},
 	});
 });

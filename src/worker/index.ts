@@ -76,6 +76,18 @@ app.get("/api/health", async (c) => {
 // são servidos antes do Worker. Sem criar um binding novo em
 // wrangler.json, buscamos "/" (que É um arquivo exato e é servido direto
 // pela camada de assets) e devolvemos seu conteúdo.
+//
+// IMPORTANTE (bug corrigido nesta rodada): "not_found_handling:
+// single-page-application" no wrangler.json intercepta QUALQUER caminho
+// sem asset correspondente — inclusive "/api/*" — quando o request "parece
+// navegação de página" (Accept: text/html, como um clique real em <a
+// href>), servindo index.html ANTES do Worker rodar. Chamadas via fetch()
+// (Accept: */*, sem Sec-Fetch-Mode: navigate) nunca acionavam isso, por
+// isso só o link de download (o único <a href> apontando para /api/* da
+// aplicação) exibia o bug. A correção real está em wrangler.json
+// ("assets.run_worker_first": ["/api/*"]), que garante que /api/* sempre
+// chega neste Worker primeiro, independente do Accept header — este
+// catch-all abaixo continua existindo só para as rotas de SPA de verdade.
 app.get("*", async (c) => {
 	if (c.req.path.startsWith("/api/")) {
 		return c.text("404 Not Found", 404);

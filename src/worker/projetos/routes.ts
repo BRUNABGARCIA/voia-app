@@ -1700,6 +1700,10 @@ projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, 
 			"Content-Type": documento.mime_type || "application/octet-stream",
 			"Content-Disposition": contentDispositionAnexo(documento.nome_arquivo_original ?? documento.nome),
 			"Content-Length": String(objeto.size),
+			// Documento pode ser interno e a resposta varia por sessão/permissão
+			// — nunca deve ser guardada em cache compartilhado (Cloudflare) nem
+			// no navegador.
+			"Cache-Control": "private, no-store",
 		},
 	});
 });
