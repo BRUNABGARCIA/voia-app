@@ -285,6 +285,21 @@ const SELECT_LISTA = `
 	LEFT JOIN usuarios u ON u.id = p.gerente_id
 `;
 
+// Detalhe completo de um projeto (GET /:id, criação e edição) — a aba
+// Visão Geral usa todas essas colunas (endereço, observações, valor
+// contratado etc.), por isso lista explícita em vez de "p.*": nunca expõe
+// automaticamente uma coluna sensível futura sem decisão consciente.
+const SELECT_PROJETO_DETALHE = `
+	SELECT p.id, p.cliente_id, p.codigo, p.nome, p.descricao, p.status, p.prioridade, p.progresso,
+	       p.valor_contratado, p.data_inicio, p.prazo_previsto, p.cep, p.logradouro, p.numero,
+	       p.complemento, p.bairro, p.cidade, p.estado, p.gerente_id, p.criado_por_id, p.observacoes,
+	       p.criado_em, p.atualizado_em,
+	       c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
+	FROM projetos p
+	JOIN clientes c ON c.id = p.cliente_id
+	LEFT JOIN usuarios u ON u.id = p.gerente_id
+`;
+
 const projetos = new Hono<AuthEnv>();
 
 // Catálogo de tipos de serviço — lista somente-leitura para alimentar
@@ -345,11 +360,7 @@ projetos.get("/:id", withSession, requireAuth, async (c) => {
 	}
 
 	const projeto = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
-		 FROM projetos p
-		 JOIN clientes c ON c.id = p.cliente_id
-		 LEFT JOIN usuarios u ON u.id = p.gerente_id
-		 WHERE p.id = ?`,
+		`${SELECT_PROJETO_DETALHE} WHERE p.id = ?`,
 	)
 		.bind(id)
 		.first();
@@ -489,11 +500,7 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	}
 
 	const criado = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
-		 FROM projetos p
-		 JOIN clientes c ON c.id = p.cliente_id
-		 LEFT JOIN usuarios u ON u.id = p.gerente_id
-		 WHERE p.id = ?`,
+		`${SELECT_PROJETO_DETALHE} WHERE p.id = ?`,
 	)
 		.bind(novoId)
 		.first();
@@ -591,11 +598,7 @@ projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 	}
 
 	const atualizado = await c.env.DB.prepare(
-		`SELECT p.*, c.nome AS cliente_nome, u.nome AS gerente_nome, ${sqlProjetoAtrasado("p")} AS atrasado
-		 FROM projetos p
-		 JOIN clientes c ON c.id = p.cliente_id
-		 LEFT JOIN usuarios u ON u.id = p.gerente_id
-		 WHERE p.id = ?`,
+		`${SELECT_PROJETO_DETALHE} WHERE p.id = ?`,
 	)
 		.bind(id)
 		.first();

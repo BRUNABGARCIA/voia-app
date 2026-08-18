@@ -68,14 +68,27 @@ const SELECT_LISTA = `
 	LEFT JOIN usuarios u ON u.id = c.responsavel_interno_id
 `;
 
+// Lista explícita em vez de "c.*" — nunca expõe automaticamente uma coluna
+// sensível futura sem decisão consciente (mesmo padrão de projetos/routes.ts).
 const SELECT_DETALHE = `
-	SELECT c.*, u.nome AS responsavel_interno_nome
+	SELECT c.id, c.tipo, c.nome, c.nome_fantasia, c.documento, c.email, c.telefone, c.whatsapp,
+	       c.cep, c.logradouro, c.numero, c.complemento, c.bairro, c.cidade, c.estado, c.status,
+	       c.origem, c.responsavel_interno_id, u.nome AS responsavel_interno_nome, c.observacoes,
+	       c.ativo, c.criado_em, c.atualizado_em
 	FROM clientes c
 	LEFT JOIN usuarios u ON u.id = c.responsavel_interno_id
 	WHERE c.id = ?
 `;
 
 const clientes = new Hono<AuthEnv>();
+
+// Decisão intencional (não é lacuna): não existe rota DELETE para cliente.
+// Um cliente pode ter projetos, contatos, histórico e documentos vinculados
+// — excluir fisicamente destruiria esse rastro. O mecanismo já existente
+// para "encerrar" um cliente é o campo status = "inativo" (via PATCH
+// /:id), que o mantém fora das listagens ativas sem apagar nada. Se no
+// futuro for necessário um arquivamento mais forte, deve ser desenhado
+// como tal — não como DELETE.
 
 // Visualizar clientes é permitido a qualquer usuário autenticado
 // (inclusive perfil "visualizador") — só criar/editar exige perfil mais

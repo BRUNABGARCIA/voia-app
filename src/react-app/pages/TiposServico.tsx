@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import EtapaModeloModal from "../components/EtapaModeloModal";
 import TarefaModeloModal from "../components/TarefaModeloModal";
+import ConfirmModal from "../components/ConfirmModal";
 import { PRIORIDADE_LABEL } from "../lib/projeto-tipos";
 import type { EtapaModelo, TarefaModelo, TipoServicoAdmin } from "../lib/tipos-servico-tipos";
 
@@ -8,11 +9,19 @@ export default function TiposServico() {
 	const [tipos, setTipos] = useState<TipoServicoAdmin[]>([]);
 	const [selecionadoId, setSelecionadoId] = useState<number | null>(null);
 	const [modelo, setModelo] = useState<EtapaModelo[] | null>(null);
+	// Id do tipo de serviço cujo modelo está em "modelo" no momento — quando
+	// diverge de selecionadoId, o tipo mudou e o modelo antigo é limpo
+	// durante a própria renderização (padrão recomendado pelo React para
+	// resetar estado quando uma seleção muda, em vez de dentro de um
+	// efeito: evita setState síncrono dentro de useEffect).
+	const [modeloDeId, setModeloDeId] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [criandoEtapa, setCriandoEtapa] = useState(false);
 	const [editandoEtapa, setEditandoEtapa] = useState<EtapaModelo | null>(null);
 	const [criandoTarefaEm, setCriandoTarefaEm] = useState<EtapaModelo | null>(null);
 	const [editandoTarefa, setEditandoTarefa] = useState<{ etapa: EtapaModelo; tarefa: TarefaModelo } | null>(null);
+	const [excluindoEtapa, setExcluindoEtapa] = useState<EtapaModelo | null>(null);
+	const [excluindoTarefa, setExcluindoTarefa] = useState<{ etapa: EtapaModelo; tarefa: TarefaModelo } | null>(null);
 
 	const carregarTipos = useCallback(() => {
 		fetch("/api/tipos-servico", { credentials: "same-origin" })
@@ -36,29 +45,28 @@ export default function TiposServico() {
 			.catch(() => setError("Não foi possível carregar o modelo deste tipo de serviço."));
 	}, [selecionadoId]);
 
+	if (selecionadoId !== modeloDeId) {
+		setModeloDeId(selecionadoId);
+		setModelo(null);
+	}
+
 	useEffect(() => {
 		carregarTipos();
 	}, [carregarTipos]);
 
 	useEffect(() => {
-		setModelo(null);
 		carregarModelo();
 	}, [carregarModelo]);
 
 	async function excluirEtapa(etapa: EtapaModelo) {
 		if (selecionadoId === null) return;
-		setError(null);
-		try {
-			const res = await fetch(`/api/tipos-servico/${selecionadoId}/modelo/${etapa.id}`, {
-				method: "DELETE",
-				credentials: "same-origin",
-			});
-			if (!res.ok) throw new Error("não foi possível excluir a etapa");
-			carregarModelo();
-			carregarTipos();
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível excluir a etapa");
-		}
+		const res = await fetch(`/api/tipos-servico/${selecionadoId}/modelo/${etapa.id}`, {
+			method: "DELETE",
+			credentials: "same-origin",
+		});
+		if (!res.ok) throw new Error("não foi possível excluir a etapa");
+		carregarModelo();
+		carregarTipos();
 	}
 
 	async function moverEtapa(etapa: EtapaModelo, direcao: "cima" | "baixo") {
@@ -92,17 +100,12 @@ export default function TiposServico() {
 
 	async function excluirTarefa(etapa: EtapaModelo, tarefa: TarefaModelo) {
 		if (selecionadoId === null) return;
-		setError(null);
-		try {
-			const res = await fetch(`/api/tipos-servico/${selecionadoId}/modelo/${etapa.id}/tarefas/${tarefa.id}`, {
-				method: "DELETE",
-				credentials: "same-origin",
-			});
-			if (!res.ok) throw new Error("não foi possível excluir a tarefa");
-			carregarModelo();
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível excluir a tarefa");
-		}
+		const res = await fetch(`/api/tipos-servico/${selecionadoId}/modelo/${etapa.id}/tarefas/${tarefa.id}`, {
+			method: "DELETE",
+			credentials: "same-origin",
+		});
+		if (!res.ok) throw new Error("não foi possível excluir a tarefa");
+		carregarModelo();
 	}
 
 	async function moverTarefa(etapa: EtapaModelo, tarefa: TarefaModelo, direcao: "cima" | "baixo") {
@@ -266,7 +269,7 @@ export default function TiposServico() {
 													</button>
 													<button
 														type="button"
-														onClick={() => excluirEtapa(etapa)}
+														onClick={() => setExcluindoEtapa(etapa)}
 														className="text-xs font-medium text-voia-danger hover:underline"
 													>
 														Excluir
@@ -349,7 +352,7 @@ export default function TiposServico() {
 																	</button>
 																	<button
 																		type="button"
-																		onClick={() => excluirTarefa(etapa, tarefa)}
+																		onClick={() => setExcluindoTarefa({ etapa, tarefa })}
 																		className="text-xs font-medium text-voia-danger hover:underline"
 																	>
 																		Excluir
@@ -396,6 +399,29 @@ export default function TiposServico() {
 					tarefa={editandoTarefa.tarefa}
 					onClose={() => setEditandoTarefa(null)}
 					onSaved={handleTarefaSaved}
+				/>
+			)}
+
+			{excluindoEtapa && (
+				<ConfirmModal
+					title="Excluir etapa padrão"
+					message={`Excluir a etapa padrão "${excluindoEtapa.nome}"${
+						excluindoEtapa.tarefas.length > 0
+							? ` e suas ${excluindoEtapa.tarefas.length} ${excluindoEtapa.tarefas.length === 1 ? "tarefa padrão" : "tarefas padrão"}`
+							: ""
+					}? Isso não afeta projetos já criados — só o modelo usado em novos projetos.`}
+					confirmLabel="Excluir"
+					onClose={() => setExcluindoEtapa(null)}
+					onConfirm={() => excluirEtapa(excluindoEtapa)}
+				/>
+			)}
+			{excluindoTarefa && (
+				<ConfirmModal
+					title="Excluir tarefa padrão"
+					message={`Excluir a tarefa padrão "${excluindoTarefa.tarefa.nome}" da etapa "${excluindoTarefa.etapa.nome}"? Isso não afeta projetos já criados — só o modelo usado em novos projetos.`}
+					confirmLabel="Excluir"
+					onClose={() => setExcluindoTarefa(null)}
+					onConfirm={() => excluirTarefa(excluindoTarefa.etapa, excluindoTarefa.tarefa)}
 				/>
 			)}
 		</div>

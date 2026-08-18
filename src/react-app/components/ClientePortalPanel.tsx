@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ContatoModal from "./ContatoModal";
 import ContatoProcessosModal from "./ContatoProcessosModal";
+import DefinirSenhaContatoModal from "./DefinirSenhaContatoModal";
 import type { ContatoCliente } from "../lib/cliente-tipos";
 
 export default function ClientePortalPanel({ clienteId }: { clienteId: number }) {
@@ -9,6 +10,7 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 	const [criando, setCriando] = useState(false);
 	const [editando, setEditando] = useState<ContatoCliente | null>(null);
 	const [gerenciandoProcessos, setGerenciandoProcessos] = useState<ContatoCliente | null>(null);
+	const [definindoSenha, setDefinindoSenha] = useState<ContatoCliente | null>(null);
 	const [removendoId, setRemovendoId] = useState<number | null>(null);
 
 	const carregar = useCallback(() => {
@@ -115,6 +117,13 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 									</button>
 									<button
 										type="button"
+										onClick={() => setDefinindoSenha(contato)}
+										className="text-xs font-medium text-voia-green-800 hover:underline"
+									>
+										{contato.possui_acesso === 1 ? "Redefinir senha" : "Definir senha"}
+									</button>
+									<button
+										type="button"
 										onClick={() => setEditando(contato)}
 										className="text-xs font-medium text-voia-green-800 hover:underline"
 									>
@@ -145,6 +154,14 @@ export default function ClientePortalPanel({ clienteId }: { clienteId: number })
 					contato={gerenciandoProcessos}
 					onClose={() => setGerenciandoProcessos(null)}
 					onSaved={() => setGerenciandoProcessos(null)}
+				/>
+			)}
+			{definindoSenha && (
+				<DefinirSenhaContatoModal
+					clienteId={clienteId}
+					contato={definindoSenha}
+					onClose={() => setDefinindoSenha(null)}
+					onSaved={carregar}
 				/>
 			)}
 		</div>

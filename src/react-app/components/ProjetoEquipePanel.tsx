@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FUNCAO_MEMBRO_LABEL, FUNCOES_MEMBRO, type FuncaoMembro, type MembroProjeto, type Projeto } from "../lib/projeto-tipos";
+import ConfirmModal from "./ConfirmModal";
 
 interface UsuarioOpcao {
 	id: number;
@@ -28,6 +29,7 @@ export default function ProjetoEquipePanel({
 	const [editandoResponsavel, setEditandoResponsavel] = useState(false);
 	const [novoResponsavelId, setNovoResponsavelId] = useState(gerenteId ? String(gerenteId) : "");
 	const [salvandoResponsavel, setSalvandoResponsavel] = useState(false);
+	const [removendoMembro, setRemovendoMembro] = useState<MembroProjeto | null>(null);
 
 	const carregarMembros = useCallback(() => {
 		fetch(`/api/projetos/${projetoId}/membros`, { credentials: "same-origin" })
@@ -119,17 +121,12 @@ export default function ProjetoEquipePanel({
 	}
 
 	async function removerMembro(usuarioId: number) {
-		setError(null);
-		try {
-			const res = await fetch(`/api/projetos/${projetoId}/membros/${usuarioId}`, {
-				method: "DELETE",
-				credentials: "same-origin",
-			});
-			if (!res.ok) throw new Error("não foi possível remover o membro");
-			carregarMembros();
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível remover o membro");
-		}
+		const res = await fetch(`/api/projetos/${projetoId}/membros/${usuarioId}`, {
+			method: "DELETE",
+			credentials: "same-origin",
+		});
+		if (!res.ok) throw new Error("não foi possível remover o membro");
+		carregarMembros();
 	}
 
 	const usuariosDisponiveis = usuarios.filter((u) => !membros?.some((m) => m.usuario_id === u.id));
@@ -300,7 +297,7 @@ export default function ProjetoEquipePanel({
 											<td className="py-2">
 												<button
 													type="button"
-													onClick={() => removerMembro(membro.usuario_id)}
+													onClick={() => setRemovendoMembro(membro)}
 													className="text-xs font-medium text-voia-danger hover:underline"
 												>
 													Remover
@@ -314,6 +311,15 @@ export default function ProjetoEquipePanel({
 					</div>
 				)}
 			</div>
+
+			{removendoMembro && (
+				<ConfirmModal
+					title="Remover membro"
+					message={`Remover "${removendoMembro.nome}" da equipe deste projeto?`}
+					onClose={() => setRemovendoMembro(null)}
+					onConfirm={() => removerMembro(removendoMembro.usuario_id)}
+				/>
+			)}
 		</div>
 	);
 }

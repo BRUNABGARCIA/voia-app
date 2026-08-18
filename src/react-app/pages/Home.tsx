@@ -126,11 +126,13 @@ export default function Home() {
 
 			{resumo && (
 				<>
-					<div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+					<div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
 						<KpiTile label="Clientes ativos" valor={resumo.clientesAtivos} />
 						<KpiTile label="Projetos em andamento" valor={resumo.projetosEmAndamento} />
 						<KpiTile label="Projetos atrasados" valor={resumo.projetosAtrasados} destaque={resumo.projetosAtrasados > 0} />
 						<KpiTile label="Projetos concluídos" valor={resumo.projetosConcluidos} />
+						<KpiTile label="Projetos sem responsável" valor={resumo.projetosSemResponsavel} destaque={resumo.projetosSemResponsavel > 0} />
+						<KpiTile label="Etapas atrasadas" valor={resumo.etapasAtrasadas} destaque={resumo.etapasAtrasadas > 0} />
 						<KpiTile label="Tarefas atrasadas" valor={resumo.tarefasAtrasadas} destaque={resumo.tarefasAtrasadas > 0} />
 						<KpiTile label="Tarefas para hoje" valor={resumo.tarefasHoje} />
 					</div>
