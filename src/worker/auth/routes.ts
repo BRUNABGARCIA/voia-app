@@ -16,18 +16,36 @@ auth.post("/login", async (c) => {
 	const body = await c.req.json().catch(() => null);
 	const parsed = loginSchema.safeParse(body);
 	if (!parsed.success) {
+		// DIAGNÓSTICO TEMPORÁRIO (remover depois do incidente) — só booleanos
+		// estruturais, nunca senha/hash/token.
+		console.log("[login-diag] parsed_success=false");
 		return c.json({ error: "credenciais inválidas" }, 401);
 	}
 
 	const { email, senha } = parsed.data;
 
+	// DIAGNÓSTICO TEMPORÁRIO: query sem "AND ativo = 1" para distinguir
+	// "e-mail não encontrado" de "encontrado mas inativo" no log abaixo — a
+	// decisão final de autorizar o login (mais abaixo) continua exigindo
+	// ativo = 1, sem nenhuma mudança de comportamento de segurança.
 	const usuario = await c.env.DB.prepare(
-		"SELECT id, nome, email, perfil, senha_hash FROM usuarios WHERE email = ? AND ativo = 1",
+		"SELECT id, nome, email, perfil, senha_hash, ativo FROM usuarios WHERE email = ?",
 	)
 		.bind(email)
-		.first<{ id: number; nome: string; email: string; perfil: string; senha_hash: string | null }>();
+		.first<{ id: number; nome: string; email: string; perfil: string; senha_hash: string | null; ativo: number }>();
 
-	if (!usuario || !usuario.senha_hash || !(await verifyPassword(senha, usuario.senha_hash))) {
+	const usuarioEncontrado = !!usuario;
+	const usuarioAtivo = usuario?.ativo === 1;
+	const possuiHash = !!usuario?.senha_hash;
+	const passwordMatch = usuario?.senha_hash ? await verifyPassword(senha, usuario.senha_hash) : false;
+
+	// DIAGNÓSTICO TEMPORÁRIO (remover depois do incidente) — só indicadores
+	// booleanos/estruturais: nunca senha, senha_hash, token ou cookie.
+	console.log(
+		`[login-diag] parsed_success=true usuario_encontrado=${usuarioEncontrado} usuario_ativo=${usuarioAtivo} possui_hash=${possuiHash} password_match=${passwordMatch}`,
+	);
+
+	if (!usuario || !usuarioAtivo || !usuario.senha_hash || !passwordMatch) {
 		return c.json({ error: "credenciais inválidas" }, 401);
 	}
 
