@@ -40,14 +40,14 @@ function CartaoAcesso({
 		<button
 			type="button"
 			onClick={onClick}
-			className="flex flex-col items-start gap-3 rounded-card border border-white/10 bg-white/[0.03] p-5 text-left shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] transition-colors hover:border-white/20 hover:bg-white/[0.06]"
+			className="flex h-full flex-col items-start gap-3 rounded-card border border-white/10 bg-white/[0.03] p-5 text-left shadow-[0_1px_0_rgba(255,255,255,0.04)_inset] transition-colors hover:border-white/20 hover:bg-white/[0.06]"
 		>
 			<span className="flex h-10 w-10 items-center justify-center rounded-control bg-white/5 text-voia-gold-500">
 				{icone}
 			</span>
 			<span className="font-display text-base text-white">{titulo}</span>
 			<span className="text-sm text-white/50">{descricao}</span>
-			<span className="mt-1 text-sm font-medium text-voia-gold-500">Acessar →</span>
+			<span className="mt-auto pt-1 text-sm font-medium text-voia-gold-500">Acessar →</span>
 		</button>
 	);
 }
@@ -159,7 +159,7 @@ export default function Login() {
 						/>
 						<CartaoAcesso
 							icone={<IconeColaborador />}
-							titulo="Colaborador"
+							titulo="Parceiro"
 							descricao="Acesse o ambiente VOIA"
 							onClick={() => setVisao("colaborador")}
 						/>
@@ -173,7 +173,7 @@ export default function Login() {
 						</button>
 
 						<h1 className="mt-3 font-display text-xl text-white">
-							{visao === "colaborador" ? "Acesso do colaborador" : "Acompanhar processo"}
+							{visao === "colaborador" ? "Acesso do parceiro" : "Acompanhar processo"}
 						</h1>
 
 						<form
