@@ -201,3 +201,10 @@ dist
 # Gerado por `wrangler types` a partir de wrangler.json (veja scripts
 # predev/prebuild em package.json e a seção D1 do README).
 worker-configuration.d.ts
+
+# Dumps/backups de D1 e artefatos de reconciliação gerados localmente
+# durante auditorias (nunca devem ser versionados: podem conter dados
+# reais de produção). Escopo só na raiz — não afeta migrations/ nem seeds/.
+/*backup*.sql
+/*dump*.sql
+/reconciliar-*.sql
