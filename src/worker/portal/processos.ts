@@ -4,6 +4,8 @@
 // administrativo (observações internas, valores contratados, endereço da
 // obra, dados de equipe) é buscado por estas funções.
 
+import { sqlEtapaAtrasada, sqlTarefaAtrasada } from "../projetos/atraso";
+
 export interface ProcessoResumo {
 	id: number;
 	codigo: string | null;
@@ -92,7 +94,7 @@ export async function buscarEtapasPublicas(db: D1Database, projetoId: number): P
 			`SELECT id, nome, descricao, ordem, status,
 			        data_inicio_prevista AS dataInicioPrevista, data_fim_prevista AS dataFimPrevista,
 			        data_conclusao AS dataConclusao,
-			        (data_fim_prevista IS NOT NULL AND data_fim_prevista < date('now') AND status <> 'concluida') AS atrasada
+			        ${sqlEtapaAtrasada("projeto_etapas")} AS atrasada
 			 FROM projeto_etapas
 			 WHERE projeto_id = ? AND visivel_cliente = 1
 			 ORDER BY ordem, id`,
@@ -110,7 +112,7 @@ export async function buscarEtapasPublicas(db: D1Database, projetoId: number): P
 		.prepare(
 			`SELECT id, etapa_id AS etapaId, nome, descricao, status, prazo,
 			        data_conclusao AS dataConclusao,
-			        (status NOT IN ('concluida', 'cancelada') AND prazo IS NOT NULL AND prazo < date('now')) AS atrasada
+			        ${sqlTarefaAtrasada("projeto_tarefas")} AS atrasada
 			 FROM projeto_tarefas
 			 WHERE etapa_id IN (${placeholders}) AND visivel_cliente = 1
 			 ORDER BY ordem, id`,
