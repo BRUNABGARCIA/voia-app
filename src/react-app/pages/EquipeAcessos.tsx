@@ -97,7 +97,11 @@ export default function EquipeAcessos() {
 
 			{!error && !usuarios && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
 
-			{usuarios && (
+			{usuarios && usuarios.length === 0 && (
+				<p className="mt-6 text-sm text-voia-neutral-500">Nenhum usuário encontrado.</p>
+			)}
+
+			{usuarios && usuarios.length > 0 && (
 				<div className="mt-6 overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
 					<table className="w-full min-w-[720px] text-left text-sm">
 						<thead>

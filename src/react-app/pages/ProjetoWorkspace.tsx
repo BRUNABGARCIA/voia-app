@@ -170,7 +170,7 @@ export default function ProjetoWorkspace() {
 
 					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
-						<div className="mt-4 grid grid-cols-2 gap-4">
+						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							{linha("Responsável", projeto.gerente_nome)}
 							{linha("Valor contratado", formatarMoeda(projeto.valor_contratado))}
 							{linha("Data de início", formatarData(projeto.data_inicio))}
@@ -251,7 +251,7 @@ export default function ProjetoWorkspace() {
 
 					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Endereço da obra</h2>
-						<div className="mt-4 grid grid-cols-2 gap-4">
+						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							{linha("Endereço", endereco)}
 							{linha("Complemento", projeto.complemento)}
 							{linha("CEP", projeto.cep)}
