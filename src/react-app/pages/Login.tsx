@@ -79,7 +79,7 @@ function CampoLogin({
 				autoComplete={autoComplete}
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
-				className="mt-1 w-full rounded-control border border-white/15 bg-white/[0.04] px-3 py-2 text-white outline-none placeholder:text-white/30 focus:border-voia-gold-500"
+				className="mt-1 w-full rounded-control border border-white/15 bg-white/[0.04] px-3 py-2 text-white outline-none placeholder:text-white/50 focus:border-voia-gold-500"
 			/>
 		</div>
 	);

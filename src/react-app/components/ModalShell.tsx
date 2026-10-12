@@ -1,4 +1,4 @@
-import { useEffect, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, type FormEvent, type ReactNode } from "react";
 
 /**
  * Casco comum para modais de formulário longos: cabeçalho e rodapé fixos,
@@ -36,15 +36,29 @@ export default function ModalShell({
 		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [onClose]);
 
+	const titleId = useId();
+	const formRef = useRef<HTMLFormElement>(null);
+
+	useEffect(() => {
+		formRef.current?.focus();
+	}, []);
+
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
 			<form
+				ref={formRef}
 				onSubmit={onSubmit}
 				noValidate
-				className={`flex max-h-[90vh] w-full ${maxWidthClassName} flex-col overflow-hidden rounded-card bg-(--color-surface) shadow-elevated`}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby={titleId}
+				tabIndex={-1}
+				className={`flex max-h-[90vh] w-full ${maxWidthClassName} flex-col overflow-hidden rounded-card bg-(--color-surface) shadow-elevated outline-none`}
 			>
 				<div className="shrink-0 border-b border-voia-neutral-100 px-(--space-card) py-4">
-					<h2 className="font-display text-xl text-voia-green-900">{title}</h2>
+					<h2 id={titleId} className="font-display text-xl text-voia-green-900">
+						{title}
+					</h2>
 				</div>
 
 				<div className="flex-1 overflow-y-auto px-(--space-card) py-4">{children}</div>

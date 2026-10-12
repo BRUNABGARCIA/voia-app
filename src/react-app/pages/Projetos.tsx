@@ -194,6 +194,14 @@ export default function Projetos() {
 								<tr
 									key={projeto.id}
 									onClick={() => navigate(`/projetos/${projeto.id}`)}
+									role="button"
+									tabIndex={0}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											navigate(`/projetos/${projeto.id}`);
+										}
+									}}
 									className="cursor-pointer border-b border-voia-neutral-100 last:border-b-0 hover:bg-voia-beige-50"
 								>
 									<td className="px-4 py-3 text-voia-neutral-700">{projeto.codigo ?? "—"}</td>

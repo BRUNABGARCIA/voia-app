@@ -136,6 +136,14 @@ export default function Clientes() {
 								<tr
 									key={cliente.id}
 									onClick={() => navigate(`/clientes/${cliente.id}`)}
+									role="button"
+									tabIndex={0}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											navigate(`/clientes/${cliente.id}`);
+										}
+									}}
 									className="cursor-pointer border-b border-voia-neutral-100 last:border-b-0 hover:bg-voia-beige-50"
 								>
 									<td className="px-4 py-3 font-medium text-voia-neutral-900">
