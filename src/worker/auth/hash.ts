@@ -42,6 +42,21 @@ export async function hashPassword(password: string): Promise<string> {
 	return [ALGORITHM, ITERATIONS, bytesToBase64(salt), bytesToBase64(derived)].join("$");
 }
 
+// Hash-dummy só para normalizar o tempo de resposta do login quando o
+// usuário/contato não existe ou não tem senha definida (ver DUMMY_HASH
+// abaixo): nunca corresponde a nenhuma senha real, não é segredo.
+const DUMMY_SALT = new Uint8Array(SALT_BYTES);
+const DUMMY_DERIVED = new Uint8Array(KEY_BYTES);
+
+/**
+ * Hash sem usuário real associado, no mesmo formato de hashPassword(),
+ * usado para que verifyPassword() sempre derive a senha (mesmo custo de
+ * PBKDF2) mesmo quando não há usuário/hash de verdade — evita que a
+ * ausência de e-mail seja distinguível de "senha errada" por tempo de
+ * resposta (timing attack).
+ */
+export const DUMMY_HASH = [ALGORITHM, ITERATIONS, bytesToBase64(DUMMY_SALT), bytesToBase64(DUMMY_DERIVED)].join("$");
+
 /** Verifica uma senha contra um hash armazenado, em tempo constante. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
 	const parts = stored.split("$");

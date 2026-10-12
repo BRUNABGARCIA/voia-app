@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { verifyPassword } from "../auth/hash";
+import { verifyPassword, DUMMY_HASH } from "../auth/hash";
 import { obterProgressoAtual } from "../projetos/progresso";
 import {
 	createPortalSession,
@@ -47,7 +47,11 @@ portal.post("/login", async (c) => {
 		.bind(email)
 		.first<{ id: number; nome: string; email: string; senha_hash: string | null; cliente_id: number; cliente_nome: string }>();
 
-	if (!contato || !contato.senha_hash || !(await verifyPassword(senha, contato.senha_hash))) {
+	// Sempre deriva a senha (mesmo custo de PBKDF2), mesmo sem contato ou
+	// sem hash real, para que "e-mail inexistente" e "senha errada" não
+	// sejam distinguíveis por tempo de resposta (timing attack).
+	const senhaValida = await verifyPassword(senha, contato?.senha_hash ?? DUMMY_HASH);
+	if (!contato || !contato.senha_hash || !senhaValida) {
 		return c.json({ error: "credenciais inválidas" }, 401);
 	}
 

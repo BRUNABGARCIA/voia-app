@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
-import { verifyPassword } from "./hash";
+import { verifyPassword, DUMMY_HASH } from "./hash";
 import { createSession, destroySession, SESSION_COOKIE_NAME, SESSION_DURATION_SECONDS } from "./session";
 import { withSession, requireAuth, type AuthEnv } from "./middleware";
 
@@ -27,7 +27,11 @@ auth.post("/login", async (c) => {
 		.bind(email)
 		.first<{ id: number; nome: string; email: string; perfil: string; senha_hash: string | null }>();
 
-	if (!usuario || !usuario.senha_hash || !(await verifyPassword(senha, usuario.senha_hash))) {
+	// Sempre deriva a senha (mesmo custo de PBKDF2), mesmo sem usuário ou
+	// sem hash real, para que "e-mail inexistente" e "senha errada" não
+	// sejam distinguíveis por tempo de resposta (timing attack).
+	const senhaValida = await verifyPassword(senha, usuario?.senha_hash ?? DUMMY_HASH);
+	if (!usuario || !usuario.senha_hash || !senhaValida) {
 		return c.json({ error: "credenciais inválidas" }, 401);
 	}
 
