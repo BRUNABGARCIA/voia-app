@@ -1,0 +1,12 @@
+{
+	"extends": "./tsconfig.node.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
+	},
+	"include": [
+		"test",
+		"vitest.config.ts",
+		"worker-configuration.d.ts",
+		"node_modules/@cloudflare/vitest-plugin/types/cloudflare-test.d.ts"
+	]
+}
