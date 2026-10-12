@@ -889,8 +889,8 @@ projetos.patch(
 			valores.push(valor);
 		}
 
-		await c.env.DB.prepare(`UPDATE projeto_etapas SET ${campos.join(", ")} WHERE id = ?`)
-			.bind(...valores, etapaId)
+		await c.env.DB.prepare(`UPDATE projeto_etapas SET ${campos.join(", ")} WHERE id = ? AND projeto_id = ?`)
+			.bind(...valores, etapaId, projetoId)
 			.run();
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
@@ -1227,8 +1227,8 @@ projetos.patch(
 			valores.push(valor);
 		}
 
-		await c.env.DB.prepare(`UPDATE projeto_tarefas SET ${campos.join(", ")} WHERE id = ?`)
-			.bind(...valores, tarefaId)
+		await c.env.DB.prepare(`UPDATE projeto_tarefas SET ${campos.join(", ")} WHERE id = ? AND projeto_id = ?`)
+			.bind(...valores, tarefaId, projetoId)
 			.run();
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
@@ -1569,8 +1569,8 @@ projetos.patch(
 			valores.push(valor);
 		}
 
-		await c.env.DB.prepare(`UPDATE projeto_documentos SET ${campos.join(", ")} WHERE id = ?`)
-			.bind(...valores, documentoId)
+		await c.env.DB.prepare(`UPDATE projeto_documentos SET ${campos.join(", ")} WHERE id = ? AND projeto_id = ?`)
+			.bind(...valores, documentoId, projetoId)
 			.run();
 
 		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(documentoId).first();
@@ -1659,9 +1659,16 @@ projetos.post(
 		await c.env.DB.prepare(
 			`UPDATE projeto_documentos
 			 SET storage_key = ?, nome_arquivo_original = ?, mime_type = ?, tamanho_bytes = ?, atualizado_em = CURRENT_TIMESTAMP
-			 WHERE id = ?`,
+			 WHERE id = ? AND projeto_id = ?`,
 		)
-			.bind(novaStorageKey, arquivoFile.name.slice(0, 255), arquivoFile.type || null, arquivoFile.size, documentoId)
+			.bind(
+				novaStorageKey,
+				arquivoFile.name.slice(0, 255),
+				arquivoFile.type || null,
+				arquivoFile.size,
+				documentoId,
+				projetoId,
+			)
 			.run();
 
 		if (existente.storage_key) {
