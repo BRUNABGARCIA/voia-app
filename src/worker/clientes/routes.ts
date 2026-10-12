@@ -159,6 +159,15 @@ clientes.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 		return c.json({ error: documentoResultado.error }, 400);
 	}
 
+	if (parsed.data.responsavel_interno_id) {
+		const responsavel = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?")
+			.bind(parsed.data.responsavel_interno_id)
+			.first();
+		if (!responsavel) {
+			return c.json({ error: "responsável interno não encontrado" }, 400);
+		}
+	}
+
 	const dados = { ...parsed.data, documento: documentoResultado.documento, status: parsed.data.status ?? "lead" };
 
 	let novoId: number;
@@ -226,6 +235,14 @@ clientes.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 			return c.json({ error: documentoResultado.error }, 400);
 		}
 		dados.documento = documentoResultado.documento;
+	}
+	if (parsed.data.responsavel_interno_id) {
+		const responsavel = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?")
+			.bind(parsed.data.responsavel_interno_id)
+			.first();
+		if (!responsavel) {
+			return c.json({ error: "responsável interno não encontrado" }, 400);
+		}
 	}
 
 	const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
@@ -387,8 +404,8 @@ clientes.patch(
 		}
 
 		try {
-			await c.env.DB.prepare(`UPDATE cliente_contatos SET ${campos.join(", ")} WHERE id = ?`)
-				.bind(...valores, contatoId)
+			await c.env.DB.prepare(`UPDATE cliente_contatos SET ${campos.join(", ")} WHERE id = ? AND cliente_id = ?`)
+				.bind(...valores, contatoId, clienteId)
 				.run();
 		} catch {
 			return c.json({ error: "não foi possível atualizar (e-mail já em uso?)" }, 409);
@@ -497,7 +514,11 @@ clientes.put(
 			.bind(clienteId, ...parsed.data.projeto_ids)
 			.all<{ id: number }>();
 
-		await c.env.DB.prepare("DELETE FROM cliente_contato_processos WHERE contato_id = ?").bind(contatoId).run();
+		await c.env.DB.prepare(
+			"DELETE FROM cliente_contato_processos WHERE contato_id = ? AND contato_id IN (SELECT id FROM cliente_contatos WHERE cliente_id = ?)",
+		)
+			.bind(contatoId, clienteId)
+			.run();
 		for (const { id: projetoId } of validos) {
 			await c.env.DB.prepare("INSERT INTO cliente_contato_processos (contato_id, projeto_id) VALUES (?, ?)")
 				.bind(contatoId, projetoId)
