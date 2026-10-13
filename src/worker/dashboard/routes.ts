@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { requireAuth, withSession, type AuthEnv } from "../auth/middleware";
 import { sqlEtapaAtrasada, sqlProjetoAtrasado, sqlTarefaAtrasada } from "../projetos/atraso";
+import { ehParceiro } from "../projetos/acesso";
+import { fraseDoDia } from "./frase-do-dia";
 
 interface Alerta {
 	tipo: "tarefa_atrasada" | "tarefa_hoje" | "etapa_atrasada" | "projeto_sem_responsavel" | "projeto_proximo_prazo";
@@ -12,15 +14,98 @@ interface Alerta {
 
 const dashboard = new Hono<AuthEnv>();
 
+/**
+ * Dashboard pessoal do Parceiro — NUNCA reaproveita os KPIs globais da VOIA
+ * (clientes ativos, projetos da empresa, etc.). Tudo aqui é escopado aos
+ * projetos em que o usuário é membro (projeto_membros) ou às tarefas
+ * atribuídas a ele (responsavel_id) — mesma régua de escopo usada em
+ * projetos/acesso.ts, nunca um filtro só de frontend.
+ */
+async function resumoParceiro(db: D1Database, usuarioId: number, nome: string) {
+	const [meusProjetos, minhasTarefas, proximasEntregas, pendencias, etapasAtrasadas] = await Promise.all([
+		db
+			.prepare(
+				`SELECT p.id, p.codigo, p.nome, p.status, p.prazo_previsto, c.nome AS cliente_nome,
+				        ${sqlProjetoAtrasado("p")} AS atrasado
+				 FROM projetos p
+				 JOIN clientes c ON c.id = p.cliente_id
+				 JOIN projeto_membros pm ON pm.projeto_id = p.id
+				 WHERE pm.usuario_id = ?
+				 ORDER BY p.criado_em DESC`,
+			)
+			.bind(usuarioId)
+			.all(),
+		db
+			.prepare(
+				`SELECT t.id, t.nome, t.status, t.prioridade, t.prazo, t.projeto_id, p.nome AS projeto_nome,
+				        ${sqlTarefaAtrasada("t")} AS atrasada
+				 FROM projeto_tarefas t
+				 JOIN projetos p ON p.id = t.projeto_id
+				 WHERE t.responsavel_id = ? AND t.status NOT IN ('concluida', 'cancelada')
+				 ORDER BY (t.prazo IS NULL), t.prazo ASC
+				 LIMIT 8`,
+			)
+			.bind(usuarioId)
+			.all(),
+		db
+			.prepare(
+				`SELECT t.id, t.nome, t.prazo, t.projeto_id, p.nome AS projeto_nome
+				 FROM projeto_tarefas t
+				 JOIN projetos p ON p.id = t.projeto_id
+				 WHERE t.responsavel_id = ? AND t.status NOT IN ('concluida', 'cancelada')
+				   AND t.prazo IS NOT NULL AND t.prazo BETWEEN date('now') AND date('now', '+7 days')
+				 ORDER BY t.prazo ASC
+				 LIMIT 8`,
+			)
+			.bind(usuarioId)
+			.all(),
+		db
+			.prepare("SELECT COUNT(*) AS n FROM projeto_tarefas WHERE responsavel_id = ? AND status NOT IN ('concluida', 'cancelada')")
+			.bind(usuarioId)
+			.first<{ n: number }>(),
+		db
+			.prepare(
+				`SELECT e.id, e.nome, e.data_fim_prevista, e.projeto_id, p.nome AS projeto_nome
+				 FROM projeto_etapas e
+				 JOIN projetos p ON p.id = e.projeto_id
+				 JOIN projeto_membros pm ON pm.projeto_id = p.id
+				 WHERE pm.usuario_id = ? AND ${sqlEtapaAtrasada("e")}
+				 ORDER BY e.data_fim_prevista ASC
+				 LIMIT 8`,
+			)
+			.bind(usuarioId)
+			.all(),
+	]);
+
+	return {
+		tipo: "parceiro" as const,
+		nome,
+		fraseDoDia: fraseDoDia(),
+		meusProjetos: meusProjetos.results,
+		minhasProximasTarefas: minhasTarefas.results,
+		proximasEntregas: proximasEntregas.results,
+		minhasPendencias: pendencias?.n ?? 0,
+		etapasAtrasadasRelacionadas: etapasAtrasadas.results,
+	};
+}
+
 // Resumo operacional para a Início. Um único endpoint (em vez de várias
 // requisições da página) — todas as consultas rodam em paralelo. Visível a
-// qualquer usuário autenticado: é um agregado dos mesmos clientes/projetos
-// que a pessoa já pode ver individualmente em /clientes e /projetos.
+// qualquer usuário autenticado, mas o CONTEÚDO depende do perfil: Parceiro
+// (perfil "colaborador") nunca recebe nenhum indicador global da empresa,
+// só o resumo pessoal dele (resumoParceiro, acima) — administrador, gestor
+// e visualizador continuam recebendo o resumo operacional completo, já
+// existente, sem nenhuma mudança.
 // "projetosAtrasados" usa a mesma regra de atraso do restante do sistema
 // (worker/projetos/atraso.ts) — nunca diverge do que a Workspace mostra.
 dashboard.get("/", withSession, requireAuth, async (c) => {
 	const db = c.env.DB;
-	const usuarioId = c.get("user")!.id;
+	const usuario = c.get("user")!;
+	const usuarioId = usuario.id;
+
+	if (ehParceiro(usuario.perfil)) {
+		return c.json(await resumoParceiro(db, usuarioId, usuario.nome));
+	}
 
 	const [
 		clientesAtivos,
@@ -150,6 +235,7 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 	].slice(0, 10);
 
 	return c.json({
+		tipo: "admin" as const,
 		clientesAtivos: clientesAtivos?.n ?? 0,
 		projetosEmAndamento: projetosEmAndamento?.n ?? 0,
 		projetosAtrasados: projetosAtrasados?.n ?? 0,
