@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import EditarUsuarioModal from "../components/EditarUsuarioModal";
 import NovoUsuarioModal from "../components/NovoUsuarioModal";
+import ProjetosDoUsuarioModal from "../components/ProjetosDoUsuarioModal";
+import { PERFIL_LABEL } from "../lib/perfis";
 
 export interface Usuario {
 	id: number;
@@ -11,15 +13,6 @@ export interface Usuario {
 	ultimo_login_em: string | null;
 	criado_em: string;
 }
-
-const PERFIL_LABEL: Record<string, string> = {
-	administrador: "Administrador",
-	gestor: "Gestor",
-	colaborador: "Colaborador",
-	visualizador: "Visualizador",
-	engenheiro: "Engenheiro",
-	financeiro: "Financeiro",
-};
 
 function formatarData(valor: string | null): string {
 	if (!valor) return "Nunca";
@@ -32,6 +25,7 @@ export default function EquipeAcessos() {
 	const [usuarios, setUsuarios] = useState<Usuario[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [editando, setEditando] = useState<Usuario | null>(null);
+	const [vendoProjetosDe, setVendoProjetosDe] = useState<Usuario | null>(null);
 	const [criando, setCriando] = useState(false);
 	const [sucesso, setSucesso] = useState<string | null>(null);
 
@@ -133,13 +127,24 @@ export default function EquipeAcessos() {
 									<td className="px-4 py-3 text-voia-neutral-700">{formatarData(u.ultimo_login_em)}</td>
 									<td className="px-4 py-3 text-voia-neutral-700">{formatarData(u.criado_em)}</td>
 									<td className="px-4 py-3">
-										<button
-											type="button"
-											onClick={() => setEditando(u)}
-											className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
-										>
-											Editar
-										</button>
+										<div className="flex gap-2">
+											<button
+												type="button"
+												onClick={() => setEditando(u)}
+												className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+											>
+												Editar
+											</button>
+											{u.perfil === "colaborador" && (
+												<button
+													type="button"
+													onClick={() => setVendoProjetosDe(u)}
+													className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+												>
+													Projetos
+												</button>
+											)}
+										</div>
 									</td>
 								</tr>
 							))}
@@ -153,6 +158,14 @@ export default function EquipeAcessos() {
 			)}
 
 			{criando && <NovoUsuarioModal onClose={() => setCriando(false)} onCreated={handleCreated} />}
+
+			{vendoProjetosDe && (
+				<ProjetosDoUsuarioModal
+					usuarioId={vendoProjetosDe.id}
+					usuarioNome={vendoProjetosDe.nome}
+					onClose={() => setVendoProjetosDe(null)}
+				/>
+			)}
 		</div>
 	);
 }

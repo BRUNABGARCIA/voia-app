@@ -45,6 +45,29 @@ usuarios.get("/", withSession, requireAuth, requireRole("administrador"), async 
 	return c.json({ usuarios: results });
 });
 
+// Para o Admin visualizar os projetos associados a um Parceiro (ou a
+// qualquer usuário) em Equipe e Acessos — reaproveita projeto_membros, já
+// criado para a gestão de equipe do projeto; nenhuma tabela nova.
+usuarios.get("/:id/projetos", withSession, requireAuth, requireRole("administrador"), async (c) => {
+	const id = Number(c.req.param("id"));
+	if (!Number.isInteger(id) || id <= 0) {
+		return c.json({ error: "id inválido" }, 400);
+	}
+
+	const { results } = await c.env.DB.prepare(
+		`SELECT p.id, p.codigo, p.nome, p.status, pm.funcao, c.nome AS cliente_nome
+		 FROM projeto_membros pm
+		 JOIN projetos p ON p.id = pm.projeto_id
+		 JOIN clientes c ON c.id = p.cliente_id
+		 WHERE pm.usuario_id = ?
+		 ORDER BY p.criado_em DESC`,
+	)
+		.bind(id)
+		.all();
+
+	return c.json({ projetos: results });
+});
+
 usuarios.post("/", withSession, requireAuth, requireRole("administrador"), async (c) => {
 	const body = await c.req.json().catch(() => null);
 	const parsed = criarUsuarioSchema.safeParse(body);
