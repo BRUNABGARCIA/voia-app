@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/useAuth";
 import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
 import ProjetoFinanceiroPanel from "../components/ProjetoFinanceiroPanel";
+import CronogramaPanel from "../components/CronogramaPanel";
 import EtapasPanel from "../components/EtapasPanel";
 import AndamentoPanel from "../components/AndamentoPanel";
 import DocumentosPanel from "../components/DocumentosPanel";
@@ -31,6 +32,7 @@ const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
 	{ key: "etapas", label: "Etapas e Tarefas" },
+	{ key: "cronograma", label: "Cronograma" },
 	{ key: "documentos", label: "Documentos" },
 	{ key: "andamento", label: "Andamento" },
 	{ key: "equipe", label: "Equipe" },
@@ -290,6 +292,8 @@ export default function ProjetoWorkspace() {
 					onProgressoChange={handleProgressoChange}
 				/>
 			)}
+
+			{aba === "cronograma" && <CronogramaPanel projetoId={projeto.id} />}
 
 			{aba === "documentos" && (
 				<DocumentosPanel projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} />

@@ -68,6 +68,9 @@ export default function AppShell() {
 					<SidebarLink to="/meu-dia" onNavigate={fecharMenu}>
 						Meu Dia
 					</SidebarLink>
+					<SidebarLink to="/calendario" onNavigate={fecharMenu}>
+						Calendário
+					</SidebarLink>
 					<SidebarLink to="/clientes" onNavigate={fecharMenu}>
 						Clientes
 					</SidebarLink>
