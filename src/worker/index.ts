@@ -11,6 +11,7 @@ import foco from "./foco/routes";
 import financeiro from "./financeiro/routes";
 import tarefas from "./tarefas/routes";
 import calendario from "./calendario/routes";
+import obras from "./obras/routes";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +26,7 @@ app.route("/api/foco", foco);
 app.route("/api/financeiro", financeiro);
 app.route("/api/tarefas", tarefas);
 app.route("/api/calendario", calendario);
+app.route("/api/obras", obras);
 // Portal do Cliente — API externa isolada, cookie e tabela de sessão
 // próprios (ver src/worker/portal). Nunca reaproveita withSession/AuthEnv.
 app.route("/api/portal", portal);
