@@ -1,15 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../contexts/useAuth";
 import type { Usuario } from "../pages/EquipeAcessos";
-
-const PERFIL_LABEL: Record<string, string> = {
-	administrador: "Administrador",
-	gestor: "Gestor",
-	colaborador: "Colaborador",
-	visualizador: "Visualizador",
-};
-
-const PERFIS = ["administrador", "gestor", "colaborador", "visualizador"] as const;
+import { PERFIL_LABEL, PERFIS_DISPONIVEIS as PERFIS } from "../lib/perfis";
 
 export default function EditarUsuarioModal({
 	usuario,
