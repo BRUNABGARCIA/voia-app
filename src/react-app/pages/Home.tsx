@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "../contexts/useAuth";
+import ParceiroHome from "./ParceiroHome";
 import {
 	PRIORIDADE_BADGE,
 	PRIORIDADE_LABEL,
@@ -93,8 +94,10 @@ export default function Home() {
 	const { user } = useAuth();
 	const [resumo, setResumo] = useState<DashboardResumo | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const ehParceiro = user?.perfil === "colaborador";
 
 	useEffect(() => {
+		if (ehParceiro) return;
 		let cancelled = false;
 
 		fetch("/api/dashboard", { credentials: "same-origin" })
@@ -112,7 +115,11 @@ export default function Home() {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [ehParceiro]);
+
+	if (ehParceiro && user) {
+		return <ParceiroHome nome={user.nome} />;
+	}
 
 	return (
 		<div>

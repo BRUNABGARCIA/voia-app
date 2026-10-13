@@ -40,6 +40,9 @@ export default function Projetos() {
 	const [busca, setBusca] = useState("");
 
 	const podeCriar = user ? PERFIS_QUE_CRIAM.includes(user.perfil) : false;
+	// Para Parceiro, "Projetos" É "Meus Projetos" — o backend já escopa a
+	// listagem a só os projetos em que ele é membro; aqui é só o rótulo.
+	const ehParceiro = user?.perfil === "colaborador";
 
 	useEffect(() => {
 		fetch("/api/clientes", { credentials: "same-origin" })
@@ -91,8 +94,14 @@ export default function Projetos() {
 		<div>
 			<div className="flex items-center justify-between">
 				<div>
-					<h1 className="font-display text-2xl font-light text-voia-neutral-900">Projetos</h1>
-					<p className="mt-1 text-sm text-voia-neutral-700">Projetos de engenharia em andamento e planejados.</p>
+					<h1 className="font-display text-2xl font-light text-voia-neutral-900">
+						{ehParceiro ? "Meus Projetos" : "Projetos"}
+					</h1>
+					<p className="mt-1 text-sm text-voia-neutral-700">
+						{ehParceiro
+							? "Projetos aos quais você está vinculado."
+							: "Projetos de engenharia em andamento e planejados."}
+					</p>
 				</div>
 				{podeCriar && (
 					<button
@@ -171,7 +180,9 @@ export default function Projetos() {
 			{!error && !projetos && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
 
 			{projetos && projetos.length === 0 && (
-				<p className="mt-6 text-sm text-voia-neutral-500">Nenhum projeto encontrado.</p>
+				<p className="mt-6 text-sm text-voia-neutral-500">
+				{ehParceiro ? "Você ainda não possui projetos vinculados." : "Nenhum projeto encontrado."}
+			</p>
 			)}
 
 			{projetos && projetos.length > 0 && (

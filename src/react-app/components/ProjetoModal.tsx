@@ -350,7 +350,8 @@ export default function ProjetoModal({
 								))}
 							</select>
 						</div>
-						{campo("Valor contratado (R$)", "valorContratado", form, set("valorContratado"))}
+						{user?.perfil !== "colaborador" &&
+							campo("Valor contratado (R$)", "valorContratado", form, set("valorContratado"))}
 						{campo("Data de início", "data_inicio", form, set("data_inicio"), { type: "date" })}
 						{campo("Prazo previsto", "prazo_previsto", form, set("prazo_previsto"), { type: "date" })}
 					</div>

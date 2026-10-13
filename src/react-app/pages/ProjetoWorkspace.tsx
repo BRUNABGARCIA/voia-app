@@ -172,7 +172,7 @@ export default function ProjetoWorkspace() {
 						<h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
 						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							{linha("Responsável", projeto.gerente_nome)}
-							{linha("Valor contratado", formatarMoeda(projeto.valor_contratado))}
+							{user?.perfil !== "colaborador" && linha("Valor contratado", formatarMoeda(projeto.valor_contratado))}
 							{linha("Data de início", formatarData(projeto.data_inicio))}
 							<div>
 								<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Prazo</span>
