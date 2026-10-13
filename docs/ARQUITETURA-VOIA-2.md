@@ -217,3 +217,121 @@ da seção 8), "meus recebimentos" (depende do financeiro de parceiros, seção
   `projeto_documentos` + R2.
 - Não fazer o parser de propostas gravar direto em dado real — sempre
   staging + revisão humana.
+
+---
+
+# Rodada 04 — Central Operacional + Gestão de Obras (implementado)
+
+As seções 1-12 acima são o mapeamento original (Rodada 02), anterior a
+qualquer implementação — mantidas como estavam. Esta parte final registra o
+que a Rodada 04 efetivamente construiu sobre essa base, e as decisões
+tomadas nos pontos em que a seção 11 só identificava lacunas.
+
+## 13. Central de Tarefas — "Meu Dia" e Kanban
+
+`projeto_tarefas` (0017) já tinha quase tudo que "Meu Dia" precisava
+(status, prioridade, responsavel_id, prazo). Faltavam duas coisas, ambas
+endereçadas pela migration **0024_projeto_tarefas_geral**:
+
+- `etapa_id` passou a ser opcional (era `NOT NULL`) — uma tarefa pode
+  pertencer ao projeto sem estar amarrada a uma etapa específica. Rebuild de
+  tabela (mesmo padrão de `0003_equipe_permissoes.sql` sobre `usuarios`):
+  recria, copia dados pelos mesmos IDs, descarta a antiga, renomeia — nenhuma
+  FK externa referenciava `projeto_tarefas.id`, então nada mais precisou ser
+  tocado.
+- `criado_por_id` foi adicionado (nullable — tarefas anteriores não têm essa
+  informação e não é inventada retroativamente).
+
+Novo módulo `src/worker/tarefas/routes.ts`, **só leitura**, montado em
+`/api/tarefas`:
+- `GET /api/tarefas/meu-dia`: tarefas atrasadas/hoje/próximas do usuário
+  autenticado (sempre `responsavel_id = sessão`) + próximas entregas
+  (etapas) do universo dele.
+- `GET /api/tarefas`: lista filtrável (projeto/responsável/prioridade/
+  status/prazo) para o Kanban — Parceiro é escopado por
+  `sqlProjetosDoParceiro`, os demais perfis mantêm a visão administrativa.
+
+Toda mutação continua em `/api/projetos/:id/tarefas*` (já auditado) — o
+módulo de tarefas nunca escreve, só agrega, para não duplicar a superfície
+de autorização. `POST /api/projetos/:id/tarefas` (nova) cria tarefa sem
+etapa; `POST /:id/etapas/:etapaId/tarefas` (já existente) continua para quem
+já está no contexto de uma etapa.
+
+Segurança adicionada: quando o ator é Parceiro, o `responsavel_id`
+atribuído a uma tarefa precisa ser membro do mesmo projeto
+(`responsavelPermitidoParaAtor`, em `projetos/routes.ts`) — administrador/
+gestor continuam livres para atribuir a qualquer usuário.
+
+Frontend: Kanban com drag-and-drop nativo HTML5 (sem biblioteca) + botões
+←/→ como alternativa sem drag para touch/mobile.
+
+## 14. Cronograma e Calendário — sem tabela nova
+
+**Cronograma** (`CronogramaPanel.tsx`, aba nova em `ProjetoWorkspace`):
+reaproveita só `projeto_etapas` (datas previstas, status, progresso via
+`tarefas_concluidas`/`tarefas_total`) — nenhuma lib de Gantt, barras
+posicionadas por CSS. Mobile cai para lista cronológica (`sm:hidden` /
+`hidden sm:block` sobre os mesmos dados).
+
+**Calendário** (`src/worker/calendario/routes.ts`, `/api/calendario`, só
+leitura): exatamente a composição que a seção 11 identificava como
+pendente — agrega tarefas com prazo, etapas com entrega prevista, datas de
+obra e (só para Parceiro) os próprios pagamentos programados/pagos. Nenhuma
+tabela nova. Decisão de apresentação: lista agrupada por data em vez de
+grade de mês, em ambos os breakpoints — cobre "lista por data no mobile"
+pedido nesta rodada com menos superfície para manter.
+
+## 15. Gestão de Obras — a decisão da seção 8, implementada
+
+A seção 8 (tabela de decisão CRIAR/REUTILIZAR/ESTENDER) foi seguida à
+risca:
+
+| Domínio | Como foi implementado |
+|---|---|
+| Dados da obra | `obras` (migration 0025), 1:N com `projetos`, FK `CASCADE` (sub-recurso do projeto, não registro financeiro independente) |
+| Equipe | `projeto_membros`, reaproveitado via `requireObraAccess` → `temAcessoAoProjeto` |
+| Cronograma/Gantt | `projeto_etapas` do projeto da obra, via `CronogramaPanel` reaproveitado dentro do `ObraWorkspace` |
+| RDO | `obra_rdo` (migration 0026), nova — sem equivalente |
+| Fotos | `obra_fotos` (migration 0027), tabela própria de metadado, mas **mesmo R2** (`DOCUMENTOS_BUCKET`) e mesmos helpers de `projeto_documentos` |
+| Pendências/Ocorrências | `obra_ocorrencias` (migration 0028), nova — workflow próprio (status/responsável/prazo) que `projeto_atualizacoes` não tinha |
+| Documentos | `projeto_documentos` do projeto da obra, via `DocumentosPanel` reaproveitado dentro do `ObraWorkspace` |
+| Histórico | `projeto_atualizacoes`, recebe o evento (obra criada, RDO criado, ocorrência aberta/resolvida) — `historico.ts` ganhou `"obra"`/`"rdo"`/`"ocorrencia"` como `entidade_tipo` (coluna já era livre, sem `CHECK`, desde a 0018) |
+| Calendário | Seção 14 acima |
+
+`progresso` da obra é **sempre manual** (0-100, documentado em código e na
+tela com o rótulo "manual") — a seção 11 já apontava que derivar
+automaticamente dependeria de decisão de produto; esta rodada optou por não
+inventar a fórmula e deixar explícito que é um campo editado por
+administrador/gestor.
+
+Acesso: `src/worker/obras/acesso.ts` (`requireObraAccess`) resolve o
+`projeto_id` da obra e reaproveita `temAcessoAoProjeto` de
+`projetos/acesso.ts` — nenhuma régua de autorização nova, só uma indireção.
+404 (nunca 403) quando o Parceiro não tem acesso, mesmo padrão
+anti-enumeração do resto do sistema.
+
+## 16. Notificações — decisão: não persistir ainda
+
+A seção 11 apontava "pendências"/"aprovações" como dependentes de tabelas
+que não existiam. Com Obras/Ocorrências agora implementadas, a Rodada 04
+ainda optou por **não criar uma tabela de notificações persistentes**: os
+"alertas" continuam sendo lidos direto das tabelas de origem a cada request
+(dashboard, Meu Dia, calendário) — dois KPIs novos (`obrasEmExecucao`,
+`ocorrenciasAbertas`) foram adicionados ao dashboard administrativo seguindo
+exatamente esse padrão. Perseguir "notificação lida/não lida" persistente
+exigiria decidir semântica de leitura por usuário × evento, o que não havia
+pedido de produto concreto o suficiente para justificar agora — fica
+identificado para uma rodada futura, não implementado por conveniência.
+
+## 17. "Meu foco de hoje" — por que não foi estendido ao Admin
+
+`parceiro_foco_diario` (migration 0022) é estruturalmente genérica
+(`usuario_id, data, texto`) — nada no schema impede reaproveitá-la para
+qualquer perfil. Mesmo assim, a Rodada 04 decidiu **não** adicionar "Meu
+foco de hoje" à Home do Admin: o nome da tabela carrega semântica de
+Parceiro, e reaproveitá-la só por conveniência de implementação confundiria
+o modelo para quem lê o schema depois (uma tabela chamada
+"parceiro_foco_diario" guardando o foco do dia de um administrador). Se um
+dia houver decisão de produto de que Admin também precisa dessa
+funcionalidade, a rota correta é uma tabela própria (`foco_diario`, sem o
+prefixo "parceiro"), não reaproveitar esta.

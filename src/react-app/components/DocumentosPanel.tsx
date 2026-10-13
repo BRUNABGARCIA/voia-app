@@ -145,13 +145,19 @@ export default function DocumentosPanel({
 									<span className="rounded-control bg-voia-beige-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-700">
 										{CATEGORIA_DOCUMENTO_LABEL[doc.categoria]}
 									</span>
-									{doc.visivel_cliente === 1 ? (
-										<span className="rounded-control bg-voia-success/15 px-2 py-0.5 text-xs font-medium text-voia-success">
-											Visível ao cliente
-										</span>
-									) : (
+									{/* Interno/Parceiro/Cliente são independentes (visivel_cliente e
+									visivel_parceiro são colunas separadas) — "Interno" só aparece
+									quando NENHuma das duas está marcada, para nunca contradizer um
+									selo de "Visível a..." ao lado (ambiguidade explicitamente
+									proibida nesta rodada). */}
+									{doc.visivel_cliente !== 1 && doc.visivel_parceiro !== 1 && (
 										<span className="rounded-control bg-voia-neutral-100 px-2 py-0.5 text-xs font-medium text-voia-neutral-500">
-											Interna
+											Interno
+										</span>
+									)}
+									{doc.visivel_cliente === 1 && (
+										<span className="rounded-control bg-voia-success/15 px-2 py-0.5 text-xs font-medium text-voia-success">
+											Visível ao Cliente
 										</span>
 									)}
 									{doc.visivel_parceiro === 1 && (

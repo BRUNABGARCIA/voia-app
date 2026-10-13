@@ -107,7 +107,7 @@ export default function ObraOcorrenciasPanel({ obraId, podeEditar }: { obraId: n
 						onChange={(e) => setTitulo(e.target.value)}
 						className="w-full rounded-control border border-voia-neutral-100 px-3 py-2 text-sm text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 					/>
-					<div className="grid grid-cols-2 gap-3">
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 						<select
 							value={categoria}
 							onChange={(e) => setCategoria(e.target.value)}
