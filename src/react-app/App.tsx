@@ -17,6 +17,7 @@ import ClienteWorkspace from "./pages/ClienteWorkspace";
 import Projetos from "./pages/Projetos";
 import ProjetoWorkspace from "./pages/ProjetoWorkspace";
 import MeusRecebimentos from "./pages/MeusRecebimentos";
+import MeuDia from "./pages/MeuDia";
 import PortalLayout from "./portal/PortalLayout";
 import MeusProcessos from "./portal/MeusProcessos";
 import PortalProcesso from "./portal/PortalProcesso";
@@ -39,6 +40,7 @@ function App() {
 								<Route path="projetos" element={<Projetos />} />
 								<Route path="projetos/:id" element={<ProjetoWorkspace />} />
 								<Route path="meus-recebimentos" element={<MeusRecebimentos />} />
+								<Route path="meu-dia" element={<MeuDia />} />
 
 								<Route element={<RequireAdmin />}>
 									<Route path="configuracoes/equipe" element={<EquipeAcessos />} />

@@ -148,14 +148,44 @@ const patchTarefaSchema = z
 	.partial()
 	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
 
+// Variante usada por POST /:id/tarefas (sem etapa no path) — etapa_id entra
+// no corpo, opcional (migration 0024 tornou a coluna nullable).
+const criarTarefaSemEtapaSchema = z.object({
+	...camposTarefa,
+	etapa_id: z.number().int().positive().optional().nullable(),
+});
+
 const SELECT_TAREFA = `
 	SELECT t.id, t.projeto_id, t.etapa_id, t.nome, t.descricao, t.ordem, t.status, t.prioridade,
 	       t.responsavel_id, u.nome AS responsavel_nome, t.data_inicio, t.prazo, t.data_conclusao,
-	       t.visivel_cliente, t.origem_modelo_id, t.criado_em, t.atualizado_em,
+	       t.visivel_cliente, t.origem_modelo_id, t.criado_por_id, uc.nome AS criado_por_nome,
+	       t.criado_em, t.atualizado_em,
 	       ${sqlTarefaAtrasada("t")} AS atrasada
 	FROM projeto_tarefas t
 	LEFT JOIN usuarios u ON u.id = t.responsavel_id
+	LEFT JOIN usuarios uc ON uc.id = t.criado_por_id
 `;
+
+/**
+ * Quando o ator é Parceiro, o responsável atribuído a uma tarefa precisa
+ * ser membro do mesmo projeto (projeto_membros) — nunca um usuário
+ * arbitrário fora do universo que o Parceiro pode ver (exigência explícita
+ * da Rodada 04). Administrador/gestor continuam podendo atribuir a
+ * qualquer usuário, como já funcionava.
+ */
+async function responsavelPermitidoParaAtor(
+	db: D1Database,
+	perfilAtor: string,
+	projetoId: number,
+	responsavelId: number,
+): Promise<boolean> {
+	if (!ehParceiro(perfilAtor)) return true;
+	const membro = await db
+		.prepare("SELECT 1 FROM projeto_membros WHERE projeto_id = ? AND usuario_id = ?")
+		.bind(projetoId, responsavelId)
+		.first();
+	return membro !== null;
+}
 
 // Documentos do projeto (migration 0019 + 0020) — metadados no D1, arquivo
 // real no Cloudflare R2 (binding "DOCUMENTOS_BUCKET"). "storage_key" só é
@@ -1170,10 +1200,15 @@ projetos.post(
 		}
 		const dados = parsed.data;
 
+		const autor = c.get("user")!;
+
 		if (dados.responsavel_id) {
 			const usuario = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(dados.responsavel_id).first();
 			if (!usuario) {
 				return c.json({ error: "responsável não encontrado" }, 400);
+			}
+			if (!(await responsavelPermitidoParaAtor(c.env.DB, autor.perfil, projetoId, dados.responsavel_id))) {
+				return c.json({ error: "responsável fora do escopo permitido para este projeto" }, 400);
 			}
 		}
 
@@ -1194,8 +1229,8 @@ projetos.post(
 		const resultado = await c.env.DB.prepare(
 			`INSERT INTO projeto_tarefas (
 				projeto_id, etapa_id, nome, descricao, ordem, status, prioridade,
-				responsavel_id, data_inicio, prazo, data_conclusao, visivel_cliente
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				responsavel_id, data_inicio, prazo, data_conclusao, visivel_cliente, criado_por_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 RETURNING id`,
 		)
 			.bind(
@@ -1211,12 +1246,12 @@ projetos.post(
 				dados.prazo,
 				dataConclusao,
 				visivelCliente,
+				autor.id,
 			)
 			.first<{ id: number }>();
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
 
-		const autor = c.get("user")!.id;
 		await registrarEvento(c.env.DB, {
 			projetoId,
 			tipo: "etapa",
@@ -1225,14 +1260,111 @@ projetos.post(
 			entidadeId: resultado!.id,
 			etapaId,
 			titulo: `Tarefa "${dados.nome}" criada em "${etapa.nome}"`,
-			usuarioId: autor,
+			usuarioId: autor.id,
 			visivelCliente: false,
 		});
-		await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, etapaId, autor);
+		await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, etapaId, autor.id);
 
 		const tarefa = await c.env.DB.prepare(`${SELECT_TAREFA} WHERE t.id = ?`).bind(resultado!.id).first();
 
 		return c.json({ tarefa, progresso }, 201);
+	},
+);
+
+// Variante de criação de tarefa SEM etapa obrigatória — pedido explícito
+// da Rodada 04 ("Meu Dia"/Kanban precisam criar tarefa de projeto sem
+// amarrar a uma etapa específica). etapa_id é opcional no corpo (desde a
+// migration 0024) e, quando informado, precisa pertencer a este projeto —
+// mesma validação já feita na rota aninhada em etapa. Quando não há
+// etapa_id, não sincroniza status de etapa nenhuma (não há o que
+// sincronizar) nem recalcula progresso por etapa — o progresso do projeto
+// continua vindo só das tarefas que pertencem a alguma etapa.
+projetos.post(
+	"/:id/tarefas",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
+	async (c) => {
+		const projetoId = Number(c.req.param("id"));
+		if (!Number.isInteger(projetoId) || projetoId <= 0) {
+			return c.json({ error: "id inválido" }, 400);
+		}
+
+		const body = await c.req.json().catch(() => null);
+		const parsed = criarTarefaSemEtapaSchema.safeParse(body);
+		if (!parsed.success) {
+			return c.json({ error: "dados inválidos" }, 400);
+		}
+		const dados = parsed.data;
+		const autor = c.get("user")!;
+
+		let etapaNome: string | null = null;
+		if (dados.etapa_id) {
+			const etapa = await c.env.DB.prepare("SELECT nome FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
+				.bind(dados.etapa_id, projetoId)
+				.first<{ nome: string }>();
+			if (!etapa) {
+				return c.json({ error: "etapa não encontrada neste projeto" }, 400);
+			}
+			etapaNome = etapa.nome;
+		}
+
+		if (dados.responsavel_id) {
+			const usuario = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(dados.responsavel_id).first();
+			if (!usuario) {
+				return c.json({ error: "responsável não encontrado" }, 400);
+			}
+			if (!(await responsavelPermitidoParaAtor(c.env.DB, autor.perfil, projetoId, dados.responsavel_id))) {
+				return c.json({ error: "responsável fora do escopo permitido para este projeto" }, 400);
+			}
+		}
+
+		const status = dados.status ?? "pendente";
+		const dataConclusao = status === "concluida" ? new Date().toISOString().slice(0, 10) : null;
+		const visivelCliente = dados.visivel_cliente === undefined ? 1 : dados.visivel_cliente ? 1 : 0;
+
+		const resultado = await c.env.DB.prepare(
+			`INSERT INTO projeto_tarefas (
+				projeto_id, etapa_id, nome, descricao, ordem, status, prioridade,
+				responsavel_id, data_inicio, prazo, data_conclusao, visivel_cliente, criado_por_id
+			) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+			 RETURNING id`,
+		)
+			.bind(
+				projetoId,
+				dados.etapa_id ?? null,
+				dados.nome,
+				dados.descricao,
+				status,
+				dados.prioridade ?? "normal",
+				dados.responsavel_id ?? null,
+				dados.data_inicio,
+				dados.prazo,
+				dataConclusao,
+				visivelCliente,
+				autor.id,
+			)
+			.first<{ id: number }>();
+
+		await registrarEvento(c.env.DB, {
+			projetoId,
+			tipo: "sistema",
+			tipoEvento: "tarefa_criada",
+			entidadeTipo: "tarefa",
+			entidadeId: resultado!.id,
+			etapaId: dados.etapa_id ?? null,
+			titulo: etapaNome ? `Tarefa "${dados.nome}" criada em "${etapaNome}"` : `Tarefa "${dados.nome}" criada`,
+			usuarioId: autor.id,
+			visivelCliente: false,
+		});
+		if (dados.etapa_id) {
+			await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, dados.etapa_id, autor.id);
+		}
+
+		const tarefa = await c.env.DB.prepare(`${SELECT_TAREFA} WHERE t.id = ?`).bind(resultado!.id).first();
+
+		return c.json({ tarefa }, 201);
 	},
 );
 
@@ -1253,7 +1385,7 @@ projetos.patch(
 			"SELECT nome, status, prazo, responsavel_id, etapa_id FROM projeto_tarefas WHERE id = ? AND projeto_id = ?",
 		)
 			.bind(tarefaId, projetoId)
-			.first<{ nome: string; status: string; prazo: string | null; responsavel_id: number | null; etapa_id: number }>();
+			.first<{ nome: string; status: string; prazo: string | null; responsavel_id: number | null; etapa_id: number | null }>();
 		if (!existente) {
 			return c.json({ error: "tarefa não encontrada" }, 404);
 		}
@@ -1268,6 +1400,9 @@ projetos.patch(
 			const usuario = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(parsed.data.responsavel_id).first();
 			if (!usuario) {
 				return c.json({ error: "responsável não encontrado" }, 400);
+			}
+			if (!(await responsavelPermitidoParaAtor(c.env.DB, c.get("user")!.perfil, projetoId, parsed.data.responsavel_id))) {
+				return c.json({ error: "responsável fora do escopo permitido para este projeto" }, 400);
 			}
 		}
 
@@ -1356,7 +1491,7 @@ projetos.patch(
 				visivelCliente: false,
 			});
 		}
-		if (typeof dados.status === "string") {
+		if (typeof dados.status === "string" && etapaId !== null) {
 			await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, etapaId, atual.id);
 		}
 
@@ -1381,7 +1516,7 @@ projetos.delete(
 
 		const existente = await c.env.DB.prepare("SELECT etapa_id FROM projeto_tarefas WHERE id = ? AND projeto_id = ?")
 			.bind(tarefaId, projetoId)
-			.first<{ etapa_id: number }>();
+			.first<{ etapa_id: number | null }>();
 		if (!existente) {
 			return c.json({ error: "tarefa não encontrada" }, 404);
 		}
@@ -1389,7 +1524,9 @@ projetos.delete(
 		await c.env.DB.prepare("DELETE FROM projeto_tarefas WHERE id = ? AND projeto_id = ?").bind(tarefaId, projetoId).run();
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
-		await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, existente.etapa_id, c.get("user")!.id);
+		if (existente.etapa_id !== null) {
+			await sincronizarStatusEtapaComHistorico(c.env.DB, projetoId, existente.etapa_id, c.get("user")!.id);
+		}
 
 		return c.json({ ok: true, progresso });
 	},

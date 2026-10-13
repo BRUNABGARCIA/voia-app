@@ -116,7 +116,11 @@ export default function EtapasPanel({
 
 	const tarefasPorEtapa = useMemo(() => {
 		const mapa = new Map<number, Tarefa[]>();
+		// Tarefas sem etapa (migration 0024 — criadas em "Meu Dia"/Kanban sem
+		// amarrar a uma etapa específica) não aparecem agrupadas aqui; esta
+		// visão é por etapa. Elas aparecem em "Meu Dia" e no Kanban.
 		for (const tarefa of tarefas) {
+			if (tarefa.etapa_id === null) continue;
 			const lista = mapa.get(tarefa.etapa_id) ?? [];
 			lista.push(tarefa);
 			mapa.set(tarefa.etapa_id, lista);
@@ -576,7 +580,7 @@ export default function EtapasPanel({
 					onSaved={handleTarefaSaved}
 				/>
 			)}
-			{editandoTarefa && (
+			{editandoTarefa && editandoTarefa.etapa_id !== null && (
 				<TarefaModal
 					projetoId={projetoId}
 					etapaId={editandoTarefa.etapa_id}

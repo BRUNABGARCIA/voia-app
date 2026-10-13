@@ -83,7 +83,8 @@ export type StatusTarefa = "pendente" | "em_andamento" | "aguardando" | "conclui
 export interface Tarefa {
 	id: number;
 	projeto_id: number;
-	etapa_id: number;
+	/** Opcional desde a migration 0024 — tarefa pode não estar amarrada a nenhuma etapa específica. */
+	etapa_id: number | null;
 	nome: string;
 	descricao: string | null;
 	ordem: number;
@@ -96,6 +97,8 @@ export interface Tarefa {
 	data_conclusao: string | null;
 	visivel_cliente: number;
 	origem_modelo_id: number | null;
+	criado_por_id: number | null;
+	criado_por_nome: string | null;
 	criado_em: string;
 	atualizado_em: string;
 	atrasada: number;
