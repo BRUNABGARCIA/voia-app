@@ -19,6 +19,8 @@ import ProjetoWorkspace from "./pages/ProjetoWorkspace";
 import MeusRecebimentos from "./pages/MeusRecebimentos";
 import MeuDia from "./pages/MeuDia";
 import Calendario from "./pages/Calendario";
+import Obras from "./pages/Obras";
+import ObraWorkspace from "./pages/ObraWorkspace";
 import PortalLayout from "./portal/PortalLayout";
 import MeusProcessos from "./portal/MeusProcessos";
 import PortalProcesso from "./portal/PortalProcesso";
@@ -43,6 +45,8 @@ function App() {
 								<Route path="meus-recebimentos" element={<MeusRecebimentos />} />
 								<Route path="meu-dia" element={<MeuDia />} />
 								<Route path="calendario" element={<Calendario />} />
+								<Route path="obras" element={<Obras />} />
+								<Route path="obras/:id" element={<ObraWorkspace />} />
 
 								<Route element={<RequireAdmin />}>
 									<Route path="configuracoes/equipe" element={<EquipeAcessos />} />

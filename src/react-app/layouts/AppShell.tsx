@@ -77,6 +77,9 @@ export default function AppShell() {
 					<SidebarLink to="/projetos" onNavigate={fecharMenu}>
 						{ehParceiro ? "Meus Projetos" : "Projetos"}
 					</SidebarLink>
+					<SidebarLink to="/obras" onNavigate={fecharMenu}>
+						{ehParceiro ? "Minhas Obras" : "Obras"}
+					</SidebarLink>
 					{ehParceiro && (
 						<SidebarLink to="/meus-recebimentos" onNavigate={fecharMenu}>
 							Meus Recebimentos
