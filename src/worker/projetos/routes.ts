@@ -649,7 +649,7 @@ projetos.get("/:id/membros", withSession, requireAuth, requireProjectAccess, asy
 	}
 
 	const { results } = await c.env.DB.prepare(
-		`SELECT pm.usuario_id, pm.funcao, pm.adicionado_em, u.nome, u.email
+		`SELECT pm.usuario_id, pm.funcao, pm.adicionado_em, u.nome, u.email, u.perfil
 		 FROM projeto_membros pm
 		 JOIN usuarios u ON u.id = pm.usuario_id
 		 WHERE pm.projeto_id = ?
@@ -705,7 +705,7 @@ projetos.post("/:id/membros", withSession, requireAuth, requireRole("administrad
 	});
 
 	const { results } = await c.env.DB.prepare(
-		`SELECT pm.usuario_id, pm.funcao, pm.adicionado_em, u.nome, u.email
+		`SELECT pm.usuario_id, pm.funcao, pm.adicionado_em, u.nome, u.email, u.perfil
 		 FROM projeto_membros pm
 		 JOIN usuarios u ON u.id = pm.usuario_id
 		 WHERE pm.projeto_id = ?

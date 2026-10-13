@@ -206,3 +206,112 @@ describe("Financeiro do Parceiro — remuneração e pagamentos", () => {
 		expect(res.status).toBe(403);
 	});
 });
+
+describe("Financeiro — remuneração só pode ser criada para Parceiro vinculado ao projeto", () => {
+	async function montarProjetoAdmin(sufixo: string) {
+		const adminId = await criarUsuario(`admin-perfil-${sufixo}@voia.local`, "administrador");
+		const cookieAdmin = await loginComo(`admin-perfil-${sufixo}@voia.local`);
+		const clienteId = await criarCliente(`Cliente Perfil ${sufixo}`);
+		const projetoId = await criarProjeto(clienteId, adminId, `Projeto Perfil ${sufixo}`);
+		return { adminId, cookieAdmin, projetoId };
+	}
+
+	it("1. Admin cadastra remuneração para Parceiro ativo vinculado ao projeto", async () => {
+		const { cookieAdmin, projetoId } = await montarProjetoAdmin("ok");
+		const parceiroId = await criarUsuario("parceiro-perfil-ok@voia.local", "colaborador");
+		await vincularMembro(projetoId, parceiroId);
+
+		const res = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: parceiroId, tipo: "fixo", valor_acordado: 100000 }, cookieAdmin),
+			env,
+		);
+		expect(res.status).toBe(201);
+	});
+
+	it("2. Admin NÃO consegue cadastrar remuneração para um administrador", async () => {
+		const { cookieAdmin, projetoId } = await montarProjetoAdmin("nega-admin");
+		const outroAdminId = await criarUsuario("outro-admin-perfil@voia.local", "administrador");
+		await vincularMembro(projetoId, outroAdminId);
+
+		const res = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: outroAdminId, tipo: "fixo", valor_acordado: 100000 }, cookieAdmin),
+			env,
+		);
+		expect(res.status).toBe(400);
+		const vazio = await env.DB.prepare("SELECT COUNT(*) AS n FROM projeto_parceiro_remuneracoes WHERE parceiro_id = ?")
+			.bind(outroAdminId)
+			.first<{ n: number }>();
+		expect(vazio?.n).toBe(0);
+	});
+
+	it("3. Admin NÃO consegue cadastrar remuneração para um gestor", async () => {
+		const { cookieAdmin, projetoId } = await montarProjetoAdmin("nega-gestor");
+		const gestorId = await criarUsuario("gestor-perfil@voia.local", "gestor");
+		await vincularMembro(projetoId, gestorId);
+
+		const res = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: gestorId, tipo: "fixo", valor_acordado: 100000 }, cookieAdmin),
+			env,
+		);
+		expect(res.status).toBe(400);
+	});
+
+	it("4. Admin NÃO consegue cadastrar remuneração para Parceiro que não está vinculado ao projeto", async () => {
+		const { cookieAdmin, projetoId } = await montarProjetoAdmin("nega-nao-vinculado");
+		const parceiroForaId = await criarUsuario("parceiro-fora-perfil@voia.local", "colaborador");
+		// Nunca vinculado via vincularMembro — perfil correto, mas sem vínculo com este projeto.
+
+		const res = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: parceiroForaId, tipo: "fixo", valor_acordado: 100000 }, cookieAdmin),
+			env,
+		);
+		expect(res.status).toBe(400);
+	});
+
+	it("5. Parceiro continua sem poder criar a própria remuneração, mesmo vinculado ao projeto", async () => {
+		const { projetoId } = await montarProjetoAdmin("parceiro-nao-cria-proprio");
+		const parceiroId = await criarUsuario("parceiro-proprio-perfil@voia.local", "colaborador");
+		await vincularMembro(projetoId, parceiroId);
+		const cookieParceiro = await loginComo("parceiro-proprio-perfil@voia.local");
+
+		const res = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: parceiroId, tipo: "fixo", valor_acordado: 100000 }, cookieParceiro),
+			env,
+		);
+		expect(res.status).toBe(403);
+	});
+
+	it("6. Alterar o parceiro_id via PATCH não contorna a validação de perfil/vínculo", async () => {
+		const { cookieAdmin, projetoId } = await montarProjetoAdmin("patch-nao-contorna");
+		const parceiroId = await criarUsuario("parceiro-patch-perfil@voia.local", "colaborador");
+		await vincularMembro(projetoId, parceiroId);
+		const outroAdminId = await criarUsuario("admin-patch-perfil@voia.local", "administrador");
+
+		const criada = await app.request(
+			`/api/financeiro/projetos/${projetoId}/remuneracoes`,
+			jsonRequest("POST", { parceiro_id: parceiroId, tipo: "fixo", valor_acordado: 100000 }, cookieAdmin),
+			env,
+		);
+		const { remuneracao } = await criada.json<{ remuneracao: { id: number } }>();
+
+		// patchRemuneracaoSchema não tem parceiro_id — mesmo enviando, o campo
+		// é descartado pelo zod e nunca chega à query de UPDATE.
+		const patch = await app.request(
+			`/api/financeiro/remuneracoes/${remuneracao.id}`,
+			jsonRequest("PATCH", { parceiro_id: outroAdminId, valor_acordado: 200000 }, cookieAdmin),
+			env,
+		);
+		expect(patch.status).toBe(200);
+
+		const row = await env.DB.prepare("SELECT parceiro_id, valor_acordado FROM projeto_parceiro_remuneracoes WHERE id = ?")
+			.bind(remuneracao.id)
+			.first<{ parceiro_id: number; valor_acordado: number }>();
+		expect(row?.parceiro_id).toBe(parceiroId);
+		expect(row?.valor_acordado).toBe(200000);
+	});
+});

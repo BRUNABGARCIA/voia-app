@@ -295,11 +295,18 @@ export default function ProjetoFinanceiroPanel({ projetoId }: { projetoId: numbe
 		}
 	}
 
+	// Remuneração só pode ser cadastrada para Parceiro (perfil técnico
+	// colaborador) vinculado a este projeto — nunca para administrador,
+	// gestor, visualizador etc. O backend valida isso de novo e é quem
+	// decide de fato; este filtro é só para não oferecer no dropdown uma
+	// opção que a API vai rejeitar.
+	const membrosParceiros = membros.filter((m) => m.perfil === "colaborador");
+
 	return (
 		<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 			<div className="flex items-center justify-between">
 				<h2 className="font-display text-lg text-voia-green-900">Remuneração de parceiros</h2>
-				{!criando && membros.length > 0 && (
+				{!criando && membrosParceiros.length > 0 && (
 					<button
 						type="button"
 						onClick={() => setCriando(true)}
@@ -310,8 +317,10 @@ export default function ProjetoFinanceiroPanel({ projetoId }: { projetoId: numbe
 				)}
 			</div>
 
-			{membros.length === 0 && (
-				<p className="mt-3 text-sm text-voia-neutral-500">Adicione membros à equipe do projeto para vincular remuneração.</p>
+			{membrosParceiros.length === 0 && (
+				<p className="mt-3 text-sm text-voia-neutral-500">
+					Adicione um Parceiro à equipe do projeto para vincular remuneração.
+				</p>
 			)}
 
 			{criando && (
@@ -327,7 +336,7 @@ export default function ProjetoFinanceiroPanel({ projetoId }: { projetoId: numbe
 							className="mt-1 rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 						>
 							<option value="">Selecione…</option>
-							{membros.map((m) => (
+							{membrosParceiros.map((m) => (
 								<option key={m.usuario_id} value={m.usuario_id}>
 									{m.nome}
 								</option>

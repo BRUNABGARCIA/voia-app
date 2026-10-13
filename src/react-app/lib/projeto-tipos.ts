@@ -47,6 +47,8 @@ export interface MembroProjeto {
 	adicionado_em: string;
 	nome: string;
 	email: string;
+	/** Perfil técnico do usuário (administrador/gestor/colaborador/…) — não confundir com `funcao`, que é o papel dele neste projeto. */
+	perfil: string;
 }
 
 export type StatusEtapa = "pendente" | "em_andamento" | "concluida";

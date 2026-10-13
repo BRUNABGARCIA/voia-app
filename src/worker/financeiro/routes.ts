@@ -48,6 +48,9 @@ const criarRemuneracaoSchema = z.object({
 	referencia_entrega: textoOpcional(500),
 });
 
+// Nunca inclui parceiro_id — reatribuir remuneração para outro usuário não
+// é uma operação suportada, então o PATCH não tem como contornar a
+// validação de perfil/vínculo feita só na criação.
 const patchRemuneracaoSchema = z
 	.object({
 		tipo: z.enum(TIPOS_REMUNERACAO),
@@ -150,9 +153,25 @@ financeiro.post(
 		}
 		const dados = parsed.data;
 
-		const parceiro = await c.env.DB.prepare("SELECT id FROM usuarios WHERE id = ?").bind(dados.parceiro_id).first();
+		// parceiro_id nunca é aceito "de boa fé": precisa ser um usuário ativo
+		// com perfil técnico colaborador (= Parceiro) E estar vinculado a este
+		// projeto via projeto_membros. Nunca confia só no filtro do dropdown do
+		// frontend — administrador, gestor, visualizador ou qualquer outro
+		// perfil, mesmo que vinculado ao projeto, é rejeitado aqui.
+		const parceiro = await c.env.DB.prepare(
+			"SELECT id FROM usuarios WHERE id = ? AND perfil = 'colaborador' AND ativo = 1",
+		)
+			.bind(dados.parceiro_id)
+			.first();
 		if (!parceiro) {
-			return c.json({ error: "parceiro não encontrado" }, 400);
+			return c.json({ error: "parceiro inválido: deve ser um usuário ativo com perfil Parceiro" }, 400);
+		}
+
+		const vinculo = await c.env.DB.prepare("SELECT 1 FROM projeto_membros WHERE projeto_id = ? AND usuario_id = ?")
+			.bind(projetoId, dados.parceiro_id)
+			.first();
+		if (!vinculo) {
+			return c.json({ error: "parceiro não está vinculado a este projeto" }, 400);
 		}
 
 		if (dados.etapa_id) {
