@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
+import {
+	ehParceiro,
+	requireProjectAccess,
+	sanitizarEtapaParaPerfil,
+	sanitizarProjetoParaPerfil,
+	sqlProjetosDoParceiro,
+} from "./acesso";
 import { sincronizarProgresso, obterProgressoAtual } from "./progresso";
 import { gerarEtapasIniciais, adicionarEstruturaTipoServico, tiposServicoDisponiveisParaGerar } from "./geracao-etapas";
 import { sqlEtapaAtrasada, sqlProjetoAtrasado, sqlTarefaAtrasada } from "./atraso";
@@ -310,19 +317,28 @@ projetos.get("/tipos-servico", withSession, requireAuth, async (c) => {
 	return c.json({ tiposServico: results });
 });
 
-// Visualizar projetos é permitido a qualquer usuário autenticado
-// (inclusive "visualizador" e "colaborador"). Criar/gerenciar equipe e
-// cancelar exigem perfis mais altos, aplicados individualmente abaixo.
+// Visualizar projetos é permitido a qualquer usuário autenticado, mas o
+// ESCOPO depende do perfil: administrador/gestor/visualizador continuam
+// vendo todos os projetos (comportamento já existente, inalterado);
+// Parceiro (perfil "colaborador") só vê os projetos aos quais está
+// vinculado em projeto_membros — "Projetos" É "Meus Projetos" para ele,
+// sempre filtrado na própria query (nunca só no frontend). Criar/gerenciar
+// equipe e cancelar exigem perfis mais altos, aplicados individualmente
+// abaixo.
 projetos.get("/", withSession, requireAuth, async (c) => {
 	const status = c.req.query("status");
 	const prioridade = c.req.query("prioridade");
 	const clienteId = c.req.query("cliente_id");
 	const responsavelId = c.req.query("responsavel_id");
 	const q = c.req.query("q")?.trim();
+	const usuario = c.get("user")!;
 
 	const condicoes: string[] = [];
 	const valores: unknown[] = [];
 
+	if (ehParceiro(usuario.perfil)) {
+		condicoes.push(sqlProjetosDoParceiro("p", usuario.id));
+	}
 	if (status && (STATUS as readonly string[]).includes(status)) {
 		condicoes.push("p.status = ?");
 		valores.push(status);
@@ -350,14 +366,15 @@ projetos.get("/", withSession, requireAuth, async (c) => {
 		.bind(...valores)
 		.all();
 
-	return c.json({ projetos: results });
+	return c.json({ projetos: results.map((p) => sanitizarProjetoParaPerfil(p, usuario.perfil)) });
 });
 
-projetos.get("/:id", withSession, requireAuth, async (c) => {
+projetos.get("/:id", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const id = Number(c.req.param("id"));
 	if (!Number.isInteger(id) || id <= 0) {
 		return c.json({ error: "id inválido" }, 400);
 	}
+	const usuario = c.get("user")!;
 
 	const projeto = await c.env.DB.prepare(
 		`${SELECT_PROJETO_DETALHE} WHERE p.id = ?`,
@@ -414,7 +431,7 @@ projetos.get("/:id", withSession, requireAuth, async (c) => {
 	]);
 
 	return c.json({
-		projeto,
+		projeto: sanitizarProjetoParaPerfil(projeto, usuario.perfil),
 		tiposServico,
 		membros,
 		resumoOperacional: {
@@ -508,7 +525,13 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	return c.json({ projeto: criado }, 201);
 });
 
-projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
+projetos.patch(
+	"/:id",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
+	async (c) => {
 	const id = Number(c.req.param("id"));
 	if (!Number.isInteger(id) || id <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -533,6 +556,13 @@ projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 	// pode editar os dados operacionais do projeto, mas não esta transição.
 	if (parsed.data.status === "cancelado" && atual.perfil === "colaborador") {
 		return c.json({ error: "apenas administrador ou gestor pode cancelar um projeto" }, 403);
+	}
+
+	// Parceiro nunca grava valor comercial — nem lê (sanitizarProjetoParaPerfil
+	// abaixo), nem escreve. Ignorado silenciosamente em vez de erro, para não
+	// quebrar um formulário que só reenvia os campos que já tinha carregado.
+	if (atual.perfil === "colaborador") {
+		delete parsed.data.valor_contratado;
 	}
 
 	if (parsed.data.cliente_id !== undefined) {
@@ -603,10 +633,11 @@ projetos.patch("/:id", withSession, requireAuth, requireRole("administrador", "g
 		.bind(id)
 		.first();
 
-	return c.json({ projeto: atualizado });
-});
+	return c.json({ projeto: sanitizarProjetoParaPerfil(atualizado, atual.perfil) });
+	},
+);
 
-projetos.get("/:id/membros", withSession, requireAuth, async (c) => {
+projetos.get("/:id/membros", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -625,7 +656,7 @@ projetos.get("/:id/membros", withSession, requireAuth, async (c) => {
 	return c.json({ membros: results });
 });
 
-projetos.post("/:id/membros", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
+projetos.post("/:id/membros", withSession, requireAuth, requireRole("administrador", "gestor"), requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -681,7 +712,13 @@ projetos.post("/:id/membros", withSession, requireAuth, requireRole("administrad
 	return c.json({ membros: results }, 201);
 });
 
-projetos.patch("/:id/membros/:usuarioId", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
+projetos.patch(
+	"/:id/membros/:usuarioId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	requireProjectAccess,
+	async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	const usuarioId = Number(c.req.param("usuarioId"));
 	if (!Number.isInteger(projetoId) || !Number.isInteger(usuarioId)) {
@@ -707,7 +744,13 @@ projetos.patch("/:id/membros/:usuarioId", withSession, requireAuth, requireRole(
 	return c.json({ ok: true });
 });
 
-projetos.delete("/:id/membros/:usuarioId", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
+projetos.delete(
+	"/:id/membros/:usuarioId",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor"),
+	requireProjectAccess,
+	async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	const usuarioId = Number(c.req.param("usuarioId"));
 	if (!Number.isInteger(projetoId) || !Number.isInteger(usuarioId)) {
@@ -747,11 +790,12 @@ projetos.delete("/:id/membros/:usuarioId", withSession, requireAuth, requireRole
 // restrito (administrador/gestor), mesma régua de "gerenciar equipe" e
 // "cancelar" — ações que alteram a estrutura do projeto, não só o dia a
 // dia operacional.
-projetos.get("/:id/etapas", withSession, requireAuth, async (c) => {
+projetos.get("/:id/etapas", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
 	}
+	const perfil = c.get("user")!.perfil;
 
 	const { results } = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE projeto_id = ? ORDER BY ordem, id`)
 		.bind(projetoId)
@@ -759,10 +803,16 @@ projetos.get("/:id/etapas", withSession, requireAuth, async (c) => {
 
 	const progressoAtual = await obterProgressoAtual(c.env.DB, projetoId);
 
-	return c.json({ etapas: results, ...progressoAtual });
+	return c.json({ etapas: results.map((e) => sanitizarEtapaParaPerfil(e, perfil)), ...progressoAtual });
 });
 
-projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
+projetos.post(
+	"/:id/etapas",
+	withSession,
+	requireAuth,
+	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
+	async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -779,6 +829,10 @@ projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrado
 		return c.json({ error: "dados inválidos" }, 400);
 	}
 	const dados = parsed.data;
+	// Parceiro nunca grava nota interna.
+	if (c.get("user")!.perfil === "colaborador") {
+		dados.observacao_interna = null;
+	}
 
 	let ordem = dados.ordem;
 	if (ordem === undefined) {
@@ -832,14 +886,16 @@ projetos.post("/:id/etapas", withSession, requireAuth, requireRole("administrado
 
 	const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(resultado!.id).first();
 
-	return c.json({ etapa, progresso }, 201);
-});
+	return c.json({ etapa: sanitizarEtapaParaPerfil(etapa, c.get("user")!.perfil), progresso }, 201);
+	},
+);
 
 projetos.patch(
 	"/:id/etapas/:etapaId",
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const etapaId = Number(c.req.param("etapaId"));
@@ -865,6 +921,11 @@ projetos.patch(
 
 		if (typeof dados.visivel_cliente === "boolean") {
 			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
+		}
+		// Parceiro nunca grava nota interna (mesmo tratamento de
+		// valor_contratado em PATCH /projetos/:id).
+		if (c.get("user")!.perfil === "colaborador") {
+			delete dados.observacao_interna;
 		}
 
 		// data_conclusao é derivada da transição de status — nunca informada
@@ -937,7 +998,7 @@ projetos.patch(
 
 		const etapa = await c.env.DB.prepare(`${SELECT_ETAPA} WHERE id = ?`).bind(etapaId).first();
 
-		return c.json({ etapa, progresso });
+		return c.json({ etapa: sanitizarEtapaParaPerfil(etapa, atual.perfil), progresso });
 	},
 );
 
@@ -946,6 +1007,7 @@ projetos.delete(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const etapaId = Number(c.req.param("etapaId"));
@@ -973,7 +1035,7 @@ projetos.delete(
 // quem pode VER a lista completa aqui dentro (o filtro real acontece do
 // lado do Portal do Cliente, em worker/portal, que só usa
 // visivel_cliente = 1). Criar segue a régua de "editar projeto".
-projetos.get("/:id/atualizacoes", withSession, requireAuth, async (c) => {
+projetos.get("/:id/atualizacoes", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -999,6 +1061,7 @@ projetos.post(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		if (!Number.isInteger(projetoId) || projetoId <= 0) {
@@ -1062,7 +1125,7 @@ projetos.post(
 // autenticado; criar/editar/mudar status/responsável/prazo = administrador,
 // gestor ou colaborador; excluir = administrador ou gestor (ação
 // estrutural, não apenas operacional do dia a dia).
-projetos.get("/:id/tarefas", withSession, requireAuth, async (c) => {
+projetos.get("/:id/tarefas", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -1080,6 +1143,7 @@ projetos.post(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const etapaId = Number(c.req.param("etapaId"));
@@ -1172,6 +1236,7 @@ projetos.patch(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const tarefaId = Number(c.req.param("tarefaId"));
@@ -1301,6 +1366,7 @@ projetos.delete(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const tarefaId = Number(c.req.param("tarefaId"));
@@ -1327,7 +1393,7 @@ projetos.delete(
 // "Adicionar estrutura de um Tipo de Serviço" — anexa etapas/tarefas de um
 // tipo já vinculado ao projeto (mas ainda não gerado) depois da criação.
 // Mesma régua de "criar etapa" (colaborador incluso).
-projetos.get("/:id/tipos-servico-disponiveis", withSession, requireAuth, async (c) => {
+projetos.get("/:id/tipos-servico-disponiveis", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -1343,6 +1409,7 @@ projetos.post(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		if (!Number.isInteger(projetoId) || projetoId <= 0) {
@@ -1388,7 +1455,7 @@ projetos.post(
 // Documentos do projeto — mesma régua de permissão de etapas/tarefas: ver =
 // qualquer autenticado; criar/editar = administrador, gestor ou
 // colaborador; excluir = administrador ou gestor.
-projetos.get("/:id/documentos", withSession, requireAuth, async (c) => {
+projetos.get("/:id/documentos", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	if (!Number.isInteger(projetoId) || projetoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
@@ -1416,6 +1483,7 @@ projetos.post(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		if (!Number.isInteger(projetoId) || projetoId <= 0) {
@@ -1528,6 +1596,7 @@ projetos.patch(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const documentoId = Number(c.req.param("documentoId"));
@@ -1583,6 +1652,7 @@ projetos.delete(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const documentoId = Number(c.req.param("documentoId"));
@@ -1621,6 +1691,7 @@ projetos.post(
 	withSession,
 	requireAuth,
 	requireRole("administrador", "gestor", "colaborador"),
+	requireProjectAccess,
 	async (c) => {
 		const projetoId = Number(c.req.param("id"));
 		const documentoId = Number(c.req.param("documentoId"));
@@ -1684,7 +1755,7 @@ projetos.post(
 // conteúdo só sai através desta rota autenticada, que busca o objeto pelo
 // binding e devolve os bytes já com o Content-Type e nome originais. Ver =
 // mesma régua de "ver documentos" (qualquer autenticado no projeto).
-projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, async (c) => {
+projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, requireProjectAccess, async (c) => {
 	const projetoId = Number(c.req.param("id"));
 	const documentoId = Number(c.req.param("documentoId"));
 	if (!Number.isInteger(projetoId) || !Number.isInteger(documentoId)) {
