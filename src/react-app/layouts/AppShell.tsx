@@ -3,6 +3,7 @@ import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import { useBranding } from "../contexts/useBranding";
 import { logoDimensoes } from "../lib/logo-escala";
+import { PERFIL_LABEL } from "../lib/perfis";
 
 function SidebarLink({ to, children, onNavigate }: { to: string; children: React.ReactNode; onNavigate: () => void }) {
 	return (
@@ -27,6 +28,7 @@ export default function AppShell() {
 	const { user, logout } = useAuth();
 	const branding = useBranding();
 	const isAdmin = user?.perfil === "administrador";
+	const ehParceiro = user?.perfil === "colaborador";
 	const logoDim = logoDimensoes(branding.logoEscala);
 	// Sidebar fixa (240px) cabe bem em desktop/notebook, prioridade desta
 	// aplicação — mas em telas de celular ela sozinha ocuparia a maior parte
@@ -67,8 +69,13 @@ export default function AppShell() {
 						Clientes
 					</SidebarLink>
 					<SidebarLink to="/projetos" onNavigate={fecharMenu}>
-						Projetos
+						{ehParceiro ? "Meus Projetos" : "Projetos"}
 					</SidebarLink>
+					{ehParceiro && (
+						<SidebarLink to="/meus-recebimentos" onNavigate={fecharMenu}>
+							Meus Recebimentos
+						</SidebarLink>
+					)}
 				</nav>
 
 				{isAdmin && (
@@ -107,7 +114,9 @@ export default function AppShell() {
 					<div className="flex items-center gap-4">
 						<div className="text-right">
 							<div className="text-sm font-medium text-voia-neutral-900">{user?.nome}</div>
-							<div className="text-xs uppercase tracking-wide text-voia-neutral-500">{user?.perfil}</div>
+							<div className="text-xs uppercase tracking-wide text-voia-neutral-500">
+							{user ? PERFIL_LABEL[user.perfil] ?? user.perfil : ""}
+						</div>
 						</div>
 						<button
 							type="button"
