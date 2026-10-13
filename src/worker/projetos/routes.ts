@@ -180,6 +180,7 @@ const camposDocumento = {
 	etapa_id: z.number().int().positive().optional().nullable(),
 	descricao: textoOpcional(2000),
 	visivel_cliente: z.boolean().optional(),
+	visivel_parceiro: z.boolean().optional(),
 };
 
 const patchDocumentoSchema = z
@@ -207,11 +208,15 @@ const documentoFormSchema = z.object({
 		.string()
 		.optional()
 		.transform((v) => v === "true" || v === "1" || v === "on"),
+	visivel_parceiro: z
+		.string()
+		.optional()
+		.transform((v) => v === "true" || v === "1" || v === "on"),
 });
 
 const SELECT_DOCUMENTO = `
 	SELECT d.id, d.projeto_id, d.etapa_id, e.nome AS etapa_nome, d.nome, d.categoria, d.descricao,
-	       d.visivel_cliente, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em,
+	       d.visivel_cliente, d.visivel_parceiro, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em,
 	       d.nome_arquivo_original, d.mime_type, d.tamanho_bytes,
 	       (d.storage_key IS NOT NULL) AS possui_arquivo
 	FROM projeto_documentos d
@@ -1468,6 +1473,13 @@ projetos.get("/:id/documentos", withSession, requireAuth, requireProjectAccess, 
 		condicoes.push("d.categoria = ?");
 		valores.push(categoria);
 	}
+	// DEFAULT DENY: Parceiro só vê documentos explicitamente liberados para
+	// ele (visivel_parceiro = 1) — independente de visivel_cliente, que é
+	// uma coluna ortogonal usada só pelo Portal do Cliente. administrador e
+	// gestor continuam vendo todos (nenhuma condição extra para eles).
+	if (ehParceiro(c.get("user")!.perfil)) {
+		condicoes.push("d.visivel_parceiro = 1");
+	}
 
 	const { results } = await c.env.DB.prepare(
 		`${SELECT_DOCUMENTO} WHERE ${condicoes.join(" AND ")} ORDER BY d.criado_em DESC, d.id DESC`,
@@ -1504,6 +1516,11 @@ projetos.post(
 			return c.json({ error: "dados inválidos" }, 400);
 		}
 		const dados = parsed.data;
+		// Só administrador/gestor decidem o que é visível ao Parceiro — ele
+		// nunca libera documento para si mesmo (DEFAULT DENY).
+		if (c.get("user")!.perfil === "colaborador") {
+			dados.visivel_parceiro = false;
+		}
 
 		if (dados.etapa_id) {
 			const etapa = await c.env.DB.prepare("SELECT id FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
@@ -1548,9 +1565,9 @@ projetos.post(
 		try {
 			resultado = await c.env.DB.prepare(
 				`INSERT INTO projeto_documentos (
-					projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, autor_id,
+					projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, visivel_parceiro, autor_id,
 					storage_key, nome_arquivo_original, mime_type, tamanho_bytes
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				 RETURNING id`,
 			)
 				.bind(
@@ -1560,6 +1577,7 @@ projetos.post(
 					dados.categoria ?? "outros",
 					dados.descricao,
 					dados.visivel_cliente ? 1 : 0,
+					dados.visivel_parceiro ? 1 : 0,
 					atual.id,
 					storageKey,
 					nomeArquivoOriginal,
@@ -1604,7 +1622,12 @@ projetos.patch(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const existente = await c.env.DB.prepare("SELECT id FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+		const atual = c.get("user")!;
+		const souParceiro = atual.perfil === "colaborador";
+
+		const existente = await c.env.DB.prepare(
+			`SELECT id FROM projeto_documentos WHERE id = ? AND projeto_id = ?${souParceiro ? " AND visivel_parceiro = 1" : ""}`,
+		)
 			.bind(documentoId, projetoId)
 			.first();
 		if (!existente) {
@@ -1615,6 +1638,11 @@ projetos.patch(
 		const parsed = patchDocumentoSchema.safeParse(body);
 		if (!parsed.success) {
 			return c.json({ error: "dados inválidos" }, 400);
+		}
+		// Parceiro nunca altera a própria visibilidade (DEFAULT DENY — só
+		// administrador/gestor decidem isso).
+		if (souParceiro) {
+			delete parsed.data.visivel_parceiro;
 		}
 
 		if (parsed.data.etapa_id) {
@@ -1629,6 +1657,9 @@ projetos.patch(
 		const dados: Record<string, unknown> = { ...parsed.data };
 		if (typeof dados.visivel_cliente === "boolean") {
 			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
+		}
+		if (typeof dados.visivel_parceiro === "boolean") {
+			dados.visivel_parceiro = dados.visivel_parceiro ? 1 : 0;
 		}
 
 		const campos: string[] = ["atualizado_em = CURRENT_TIMESTAMP"];
@@ -1762,8 +1793,10 @@ projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, 
 		return c.json({ error: "id inválido" }, 400);
 	}
 
+	const souParceiro = c.get("user")!.perfil === "colaborador";
 	const documento = await c.env.DB.prepare(
-		"SELECT storage_key, nome_arquivo_original, nome, mime_type FROM projeto_documentos WHERE id = ? AND projeto_id = ?",
+		`SELECT storage_key, nome_arquivo_original, nome, mime_type FROM projeto_documentos
+		 WHERE id = ? AND projeto_id = ?${souParceiro ? " AND visivel_parceiro = 1" : ""}`,
 	)
 		.bind(documentoId, projetoId)
 		.first<{ storage_key: string | null; nome_arquivo_original: string | null; nome: string; mime_type: string | null }>();

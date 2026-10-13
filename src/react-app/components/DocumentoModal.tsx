@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import ModalShell from "./ModalShell";
+import { useAuth } from "../contexts/useAuth";
 import {
 	CATEGORIAS_DOCUMENTO,
 	CATEGORIA_DOCUMENTO_LABEL,
@@ -20,6 +21,7 @@ interface FormState {
 	etapa_id: string;
 	descricao: string;
 	visivel_cliente: boolean;
+	visivel_parceiro: boolean;
 }
 
 function documentoParaForm(documento: Documento | null): FormState {
@@ -29,6 +31,7 @@ function documentoParaForm(documento: Documento | null): FormState {
 		etapa_id: documento?.etapa_id ? String(documento.etapa_id) : "",
 		descricao: documento?.descricao ?? "",
 		visivel_cliente: documento ? documento.visivel_cliente === 1 : false,
+		visivel_parceiro: documento ? documento.visivel_parceiro === 1 : false,
 	};
 }
 
@@ -51,6 +54,8 @@ export default function DocumentoModal({
 	onClose: () => void;
 	onSaved: () => void;
 }) {
+	const { user } = useAuth();
+	const podeDefinirVisibilidadeParceiro = user?.perfil === "administrador" || user?.perfil === "gestor";
 	const editando = documento !== null;
 	const [form, setForm] = useState<FormState>(() => documentoParaForm(documento));
 	const [arquivo, setArquivo] = useState<File | null>(null);
@@ -96,6 +101,7 @@ export default function DocumentoModal({
 					etapa_id: form.etapa_id ? Number(form.etapa_id) : null,
 					descricao: form.descricao || null,
 					visivel_cliente: form.visivel_cliente,
+					...(podeDefinirVisibilidadeParceiro ? { visivel_parceiro: form.visivel_parceiro } : {}),
 				};
 				const res = await fetch(`/api/projetos/${projetoId}/documentos/${documento.id}`, {
 					method: "PATCH",
@@ -114,6 +120,9 @@ export default function DocumentoModal({
 				if (form.etapa_id) dados.set("etapa_id", form.etapa_id);
 				if (form.descricao) dados.set("descricao", form.descricao);
 				dados.set("visivel_cliente", form.visivel_cliente ? "true" : "false");
+				if (podeDefinirVisibilidadeParceiro) {
+					dados.set("visivel_parceiro", form.visivel_parceiro ? "true" : "false");
+				}
 				if (arquivo) dados.set("arquivo", arquivo);
 
 				const res = await fetch(`/api/projetos/${projetoId}/documentos`, {
@@ -307,6 +316,17 @@ export default function DocumentoModal({
 					/>
 					Visível ao cliente no Portal
 				</label>
+				{podeDefinirVisibilidadeParceiro && (
+					<label className="flex items-center gap-2 text-sm font-medium text-voia-neutral-900">
+						<input
+							type="checkbox"
+							checked={form.visivel_parceiro}
+							onChange={(e) => set("visivel_parceiro")(e.target.checked)}
+							className="h-4 w-4 rounded border-voia-neutral-100 text-voia-gold-500 focus:ring-voia-gold-500"
+						/>
+						Visível ao Parceiro vinculado ao projeto
+					</label>
+				)}
 
 				{error && <p className="text-sm text-voia-danger">{error}</p>}
 			</div>

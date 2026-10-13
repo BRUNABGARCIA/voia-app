@@ -119,6 +119,7 @@ export interface Documento {
 	categoria: CategoriaDocumento;
 	descricao: string | null;
 	visivel_cliente: number;
+	visivel_parceiro: number;
 	autor_id: number | null;
 	autor_nome: string | null;
 	criado_em: string;

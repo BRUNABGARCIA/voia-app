@@ -154,6 +154,11 @@ export default function DocumentosPanel({
 											Interna
 										</span>
 									)}
+									{doc.visivel_parceiro === 1 && (
+										<span className="rounded-control bg-voia-gold-500/15 px-2 py-0.5 text-xs font-medium text-voia-gold-500">
+											Visível ao Parceiro
+										</span>
+									)}
 								</div>
 								{doc.descricao && <p className="mt-1 text-sm text-voia-neutral-700">{doc.descricao}</p>}
 								<p className="mt-1 text-xs text-voia-neutral-500">
