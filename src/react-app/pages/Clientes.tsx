@@ -4,7 +4,9 @@ import { useAuth } from "../contexts/useAuth";
 import ClienteModal from "../components/ClienteModal";
 import { STATUS_BADGE, STATUS_LABEL, TIPO_LABEL, type Cliente } from "../lib/cliente-tipos";
 
-const PERFIS_QUE_CRIAM = ["administrador", "gestor", "colaborador"];
+// Parceiro (colaborador) não cria cliente — decisão de produto da Rodada
+// 03 (revisão), bloqueada também no backend (requireRole em clientes/routes.ts).
+const PERFIS_QUE_CRIAM = ["administrador", "gestor"];
 
 function formatarData(valor: string): string {
 	const data = new Date(valor.includes("T") ? valor : `${valor.replace(" ", "T")}Z`);

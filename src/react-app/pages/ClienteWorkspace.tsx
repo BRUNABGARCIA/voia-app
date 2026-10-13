@@ -8,7 +8,9 @@ import ClientePortalPanel from "../components/ClientePortalPanel";
 import { STATUS_BADGE, STATUS_LABEL, TIPO_LABEL, type Cliente, type ProjetoDoCliente } from "../lib/cliente-tipos";
 import { formatarData } from "../lib/projeto-tipos";
 
-const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
+// Parceiro (colaborador) não edita cliente — decisão de produto da Rodada
+// 03 (revisão), bloqueada também no backend (requireRole em clientes/routes.ts).
+const PERFIS_QUE_EDITAM = ["administrador", "gestor"];
 const PERFIS_QUE_GERENCIAM_PORTAL = ["administrador", "gestor"];
 
 const ABAS = [

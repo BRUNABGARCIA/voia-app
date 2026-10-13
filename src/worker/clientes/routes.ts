@@ -164,7 +164,12 @@ clientes.get("/:id", withSession, requireAuth, async (c) => {
 	return c.json({ cliente: sanitizarClienteParaPerfil(cliente, usuario.perfil), projetos });
 });
 
-clientes.post("/", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
+// Parceiro (perfil "colaborador") nunca cria/edita cliente — só consulta
+// os dados mínimos dos clientes relacionados aos projetos em que participa
+// (ver GET abaixo). Decisão de produto explícita da Rodada 03 (revisão):
+// antes, colaborador tinha esse direito; foi revogado aqui, no backend —
+// nunca só escondido no frontend.
+clientes.post("/", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
 	const body = await c.req.json().catch(() => null);
 	const parsed = criarClienteSchema.safeParse(body);
 	if (!parsed.success) {
@@ -228,7 +233,7 @@ clientes.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	return c.json({ cliente: criado }, 201);
 });
 
-clientes.patch("/:id", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
+clientes.patch("/:id", withSession, requireAuth, requireRole("administrador", "gestor"), async (c) => {
 	const id = Number(c.req.param("id"));
 	if (!Number.isInteger(id) || id <= 0) {
 		return c.json({ error: "id inválido" }, 400);
