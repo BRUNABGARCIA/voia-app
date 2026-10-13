@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
+import ProjetoFinanceiroPanel from "../components/ProjetoFinanceiroPanel";
 import EtapasPanel from "../components/EtapasPanel";
 import AndamentoPanel from "../components/AndamentoPanel";
 import DocumentosPanel from "../components/DocumentosPanel";
@@ -297,13 +298,16 @@ export default function ProjetoWorkspace() {
 			{aba === "andamento" && <AndamentoPanel projetoId={projeto.id} podeEditar={podeEditar} />}
 
 			{aba === "equipe" && (
-				<ProjetoEquipePanel
-					projetoId={projeto.id}
-					gerenteId={projeto.gerente_id}
-					gerenteNome={projeto.gerente_nome}
-					podeGerenciar={podeGerenciarEquipe}
-					onResponsavelAlterado={handleSaved}
-				/>
+				<>
+					<ProjetoEquipePanel
+						projetoId={projeto.id}
+						gerenteId={projeto.gerente_id}
+						gerenteNome={projeto.gerente_nome}
+						podeGerenciar={podeGerenciarEquipe}
+						onResponsavelAlterado={handleSaved}
+					/>
+					{podeGerenciarEquipe && <ProjetoFinanceiroPanel projetoId={projeto.id} />}
+				</>
 			)}
 
 			{editando && (

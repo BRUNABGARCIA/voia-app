@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import EditarUsuarioModal from "../components/EditarUsuarioModal";
 import NovoUsuarioModal from "../components/NovoUsuarioModal";
 import ProjetosDoUsuarioModal from "../components/ProjetosDoUsuarioModal";
+import RecebimentosDoUsuarioModal from "../components/RecebimentosDoUsuarioModal";
 import { PERFIL_LABEL } from "../lib/perfis";
 
 export interface Usuario {
@@ -26,6 +27,7 @@ export default function EquipeAcessos() {
 	const [error, setError] = useState<string | null>(null);
 	const [editando, setEditando] = useState<Usuario | null>(null);
 	const [vendoProjetosDe, setVendoProjetosDe] = useState<Usuario | null>(null);
+	const [vendoRecebimentosDe, setVendoRecebimentosDe] = useState<Usuario | null>(null);
 	const [criando, setCriando] = useState(false);
 	const [sucesso, setSucesso] = useState<string | null>(null);
 
@@ -136,13 +138,22 @@ export default function EquipeAcessos() {
 												Editar
 											</button>
 											{u.perfil === "colaborador" && (
-												<button
-													type="button"
-													onClick={() => setVendoProjetosDe(u)}
-													className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
-												>
-													Projetos
-												</button>
+												<>
+													<button
+														type="button"
+														onClick={() => setVendoProjetosDe(u)}
+														className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+													>
+														Projetos
+													</button>
+													<button
+														type="button"
+														onClick={() => setVendoRecebimentosDe(u)}
+														className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-xs font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+													>
+														Recebimentos
+													</button>
+												</>
 											)}
 										</div>
 									</td>
@@ -164,6 +175,14 @@ export default function EquipeAcessos() {
 					usuarioId={vendoProjetosDe.id}
 					usuarioNome={vendoProjetosDe.nome}
 					onClose={() => setVendoProjetosDe(null)}
+				/>
+			)}
+
+			{vendoRecebimentosDe && (
+				<RecebimentosDoUsuarioModal
+					usuarioId={vendoRecebimentosDe.id}
+					usuarioNome={vendoRecebimentosDe.nome}
+					onClose={() => setVendoRecebimentosDe(null)}
 				/>
 			)}
 		</div>
