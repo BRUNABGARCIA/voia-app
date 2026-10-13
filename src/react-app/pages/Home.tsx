@@ -60,6 +60,8 @@ interface DashboardResumo {
 	minhasProximasTarefas: MinhaTarefa[];
 	etapasAtrasadas: number;
 	projetosSemResponsavel: number;
+	obrasEmExecucao: number;
+	ocorrenciasAbertas: number;
 	alertas: Alerta[];
 }
 
@@ -128,6 +130,27 @@ export default function Home() {
 			</h1>
 			<p className="mt-1 text-sm text-voia-neutral-700">Resumo operacional do VOIA.</p>
 
+			<div className="mt-3 flex flex-wrap gap-2">
+				<Link
+					to="/meu-dia"
+					className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+				>
+					Meu Dia
+				</Link>
+				<Link
+					to="/obras"
+					className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+				>
+					Obras
+				</Link>
+				<Link
+					to="/calendario"
+					className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
+				>
+					Calendário
+				</Link>
+			</div>
+
 			{error && <p className="mt-6 text-sm text-voia-danger">{error}</p>}
 			{!error && !resumo && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
 
@@ -142,6 +165,8 @@ export default function Home() {
 						<KpiTile label="Etapas atrasadas" valor={resumo.etapasAtrasadas} destaque={resumo.etapasAtrasadas > 0} />
 						<KpiTile label="Tarefas atrasadas" valor={resumo.tarefasAtrasadas} destaque={resumo.tarefasAtrasadas > 0} />
 						<KpiTile label="Tarefas para hoje" valor={resumo.tarefasHoje} />
+						<KpiTile label="Obras em execução" valor={resumo.obrasEmExecucao} />
+						<KpiTile label="Ocorrências abertas" valor={resumo.ocorrenciasAbertas} destaque={resumo.ocorrenciasAbertas > 0} />
 					</div>
 
 					{resumo.alertas.length > 0 && (

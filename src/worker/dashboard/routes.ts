@@ -120,6 +120,8 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 		minhasTarefas,
 		etapasAtrasadas,
 		projetosSemResponsavel,
+		obrasEmExecucao,
+		ocorrenciasAbertas,
 		alertaTarefasAtrasadas,
 		alertaTarefasHoje,
 		alertaEtapasAtrasadas,
@@ -182,6 +184,10 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 		db
 			.prepare("SELECT COUNT(*) AS n FROM projetos WHERE gerente_id IS NULL AND status NOT IN ('concluido', 'cancelado')")
 			.first<{ n: number }>(),
+		// Obras/ocorrências (Rodada 04) — mesma régua: contagem direta,
+		// nunca um indicador inventado sem fonte real.
+		db.prepare("SELECT COUNT(*) AS n FROM obras WHERE status = 'em_execucao'").first<{ n: number }>(),
+		db.prepare("SELECT COUNT(*) AS n FROM obra_ocorrencias WHERE status IN ('aberta', 'em_tratamento')").first<{ n: number }>(),
 		// Alertas operacionais — cada consulta já limitada, combinadas abaixo
 		// num único feed curto (não é um sistema de notificações, só uma
 		// leitura direta dos mesmos dados já existentes).
@@ -248,6 +254,8 @@ dashboard.get("/", withSession, requireAuth, async (c) => {
 		minhasProximasTarefas: minhasTarefas.results,
 		etapasAtrasadas: etapasAtrasadas?.n ?? 0,
 		projetosSemResponsavel: projetosSemResponsavel?.n ?? 0,
+		obrasEmExecucao: obrasEmExecucao?.n ?? 0,
+		ocorrenciasAbertas: ocorrenciasAbertas?.n ?? 0,
 		alertas,
 	});
 });

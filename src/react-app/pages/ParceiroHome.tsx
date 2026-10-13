@@ -10,6 +10,7 @@ import {
 	type StatusProjeto,
 	type StatusTarefa,
 } from "../lib/projeto-tipos";
+import { STATUS_OBRA_BADGE, STATUS_OBRA_LABEL, type Obra } from "../lib/obra-tipos";
 
 interface MeuProjeto {
 	id: number;
@@ -60,6 +61,7 @@ interface ResumoParceiro {
 export default function ParceiroHome({ nome }: { nome: string }) {
 	const [resumo, setResumo] = useState<ResumoParceiro | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [obras, setObras] = useState<Obra[] | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -76,6 +78,13 @@ export default function ParceiroHome({ nome }: { nome: string }) {
 				if (!cancelled) setError("Não foi possível carregar o seu resumo.");
 			});
 
+		fetch("/api/obras", { credentials: "same-origin" })
+			.then((res) => (res.ok ? (res.json() as Promise<{ obras: Obra[] }>) : null))
+			.then((data) => {
+				if (!cancelled && data) setObras(data.obras);
+			})
+			.catch(() => {});
+
 		return () => {
 			cancelled = true;
 		};
@@ -87,6 +96,21 @@ export default function ParceiroHome({ nome }: { nome: string }) {
 			{resumo && <p className="mt-1 text-sm italic text-voia-neutral-500">{resumo.fraseDoDia}</p>}
 
 			<MeuFocoHoje />
+
+			<div className="mt-6 flex flex-wrap gap-2">
+				<Link to="/meu-dia" className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100">
+					Meu Dia
+				</Link>
+				<Link to="/projetos" className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100">
+					Meus Projetos
+				</Link>
+				<Link to="/obras" className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100">
+					Obras
+				</Link>
+				<Link to="/meus-recebimentos" className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100">
+					Meus Recebimentos
+				</Link>
+			</div>
 
 			{error && <p className="mt-6 text-sm text-voia-danger">{error}</p>}
 			{!error && !resumo && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
@@ -234,6 +258,36 @@ export default function ParceiroHome({ nome }: { nome: string }) {
 						)}
 					</div>
 				</>
+			)}
+
+			{obras && (
+				<div className="mt-6">
+					<h2 className="font-display text-lg text-voia-green-900">Minhas obras</h2>
+					{obras.length === 0 ? (
+						<p className="mt-3 text-sm text-voia-neutral-500">Nenhuma obra vinculada aos seus projetos no momento.</p>
+					) : (
+						<ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+							{obras.map((obra) => (
+								<li key={obra.id}>
+									<Link
+										to={`/obras/${obra.id}`}
+										className="block rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card hover:shadow-elevated"
+									>
+										<div className="flex items-center justify-between gap-2">
+											<span className="font-medium text-voia-neutral-900">{obra.nome}</span>
+											<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_OBRA_BADGE[obra.status]}`}>
+												{STATUS_OBRA_LABEL[obra.status]}
+											</span>
+										</div>
+										<div className="mt-1 text-xs text-voia-neutral-500">
+											{obra.projeto_nome} · {obra.progresso}%
+										</div>
+									</Link>
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
 			)}
 		</div>
 	);
