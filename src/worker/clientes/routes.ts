@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { hashPassword } from "../auth/hash";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
+import { ehParceiro, sanitizarClienteParaPerfil, sqlClientesDoParceiro, temAcessoAoCliente } from "../projetos/acesso";
 
 const TIPOS = ["PF", "PJ"] as const;
 const STATUS = ["lead", "ativo", "inativo"] as const;
@@ -92,15 +93,23 @@ const clientes = new Hono<AuthEnv>();
 
 // Visualizar clientes é permitido a qualquer usuário autenticado
 // (inclusive perfil "visualizador") — só criar/editar exige perfil mais
-// alto, aplicado individualmente abaixo.
+// alto, aplicado individualmente abaixo. Parceiro (perfil "colaborador")
+// é a excepão: nunca enumera a carteira completa da VOIA, só os clientes
+// dos projetos aos quais está vinculado (escopado na própria query, nunca
+// só no frontend), e com campos administrativos (responsável interno,
+// observações) removidos da resposta.
 clientes.get("/", withSession, requireAuth, async (c) => {
 	const status = c.req.query("status");
 	const tipo = c.req.query("tipo");
 	const q = c.req.query("q")?.trim();
+	const usuario = c.get("user")!;
 
 	const condicoes: string[] = [];
 	const valores: unknown[] = [];
 
+	if (ehParceiro(usuario.perfil)) {
+		condicoes.push(sqlClientesDoParceiro("c", usuario.id));
+	}
 	if (status && (STATUS as readonly string[]).includes(status)) {
 		condicoes.push("c.status = ?");
 		valores.push(status);
@@ -120,13 +129,21 @@ clientes.get("/", withSession, requireAuth, async (c) => {
 		.bind(...valores)
 		.all();
 
-	return c.json({ clientes: results });
+	return c.json({ clientes: results.map((cl) => sanitizarClienteParaPerfil(cl, usuario.perfil)) });
 });
 
 clientes.get("/:id", withSession, requireAuth, async (c) => {
 	const id = Number(c.req.param("id"));
 	if (!Number.isInteger(id) || id <= 0) {
 		return c.json({ error: "id inválido" }, 400);
+	}
+	const usuario = c.get("user")!;
+
+	// Parceiro só acessa o cliente se tiver pelo menos um projeto em comum
+	// com ele — mesmo padrão anti-enumeração do restante do sistema: 404,
+	// nunca 403, para não confirmar que o cliente existe.
+	if (!(await temAcessoAoCliente(c.env.DB, usuario.id, usuario.perfil, id))) {
+		return c.json({ error: "cliente não encontrado" }, 404);
 	}
 
 	const cliente = await c.env.DB.prepare(SELECT_DETALHE).bind(id).first();
@@ -138,13 +155,13 @@ clientes.get("/:id", withSession, requireAuth, async (c) => {
 		`SELECT p.id, p.codigo, p.nome, p.status, p.prioridade, p.progresso, p.prazo_previsto, u.nome AS gerente_nome
 		 FROM projetos p
 		 LEFT JOIN usuarios u ON u.id = p.gerente_id
-		 WHERE p.cliente_id = ?
+		 WHERE p.cliente_id = ?${ehParceiro(usuario.perfil) ? " AND EXISTS (SELECT 1 FROM projeto_membros pm WHERE pm.projeto_id = p.id AND pm.usuario_id = ?)" : ""}
 		 ORDER BY p.criado_em DESC`,
 	)
-		.bind(id)
+		.bind(...(ehParceiro(usuario.perfil) ? [id, usuario.id] : [id]))
 		.all();
 
-	return c.json({ cliente, projetos });
+	return c.json({ cliente: sanitizarClienteParaPerfil(cliente, usuario.perfil), projetos });
 });
 
 clientes.post("/", withSession, requireAuth, requireRole("administrador", "gestor", "colaborador"), async (c) => {
