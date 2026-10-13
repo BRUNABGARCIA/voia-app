@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import app from "../../src/worker/index";
 import { SESSION_COOKIE_NAME } from "../../src/worker/auth/session";
-import { criarCliente, criarProjeto, criarUsuario } from "../helpers/fixtures";
+import { criarCliente, criarProjeto, criarUsuario, vincularMembro } from "../helpers/fixtures";
 import { extrairCookie, jsonRequest } from "../helpers/http";
 
 async function loginComo(email: string): Promise<string> {
@@ -57,6 +57,11 @@ describe("matriz de autorização — casos sensíveis", () => {
 		const cookie = await loginComo("colaborador-cancela@voia.local");
 		const clienteId = await criarCliente("Cliente Matriz Cancelar");
 		const projetoId = await criarProjeto(clienteId, colaboradorId, "Projeto a Cancelar");
+		// Desde a Rodada 03, colaborador (Parceiro) só acessa projetos em que
+		// é membro (projeto_membros) — sem isso, cairia em 404 antes mesmo de
+		// chegar na regra específica de "não pode cancelar" que este teste
+		// quer exercitar.
+		await vincularMembro(projetoId, colaboradorId);
 
 		const res = await app.request(
 			`/api/projetos/${projetoId}`,

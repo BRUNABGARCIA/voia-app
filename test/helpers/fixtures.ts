@@ -51,3 +51,10 @@ export async function criarDocumento(projetoId: number, autorId: number, nome: s
 		.first<{ id: number }>();
 	return row!.id;
 }
+
+/** Vincula um usuário (Parceiro) a um projeto em projeto_membros — mesma estrutura que a Rodada 03 reaproveita para "Meus Projetos". */
+export async function vincularMembro(projetoId: number, usuarioId: number, funcao = "colaborador"): Promise<void> {
+	await env.DB.prepare("INSERT INTO projeto_membros (projeto_id, usuario_id, funcao) VALUES (?, ?, ?)")
+		.bind(projetoId, usuarioId, funcao)
+		.run();
+}
