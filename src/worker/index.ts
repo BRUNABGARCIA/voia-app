@@ -7,6 +7,8 @@ import projetos from "./projetos/routes";
 import dashboard from "./dashboard/routes";
 import tiposServico from "./tipos-servico/routes";
 import portal from "./portal/routes";
+import foco from "./foco/routes";
+import financeiro from "./financeiro/routes";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -17,6 +19,8 @@ app.route("/api/clientes", clientes);
 app.route("/api/projetos", projetos);
 app.route("/api/dashboard", dashboard);
 app.route("/api/tipos-servico", tiposServico);
+app.route("/api/foco", foco);
+app.route("/api/financeiro", financeiro);
 // Portal do Cliente — API externa isolada, cookie e tabela de sessão
 // próprios (ver src/worker/portal). Nunca reaproveita withSession/AuthEnv.
 app.route("/api/portal", portal);

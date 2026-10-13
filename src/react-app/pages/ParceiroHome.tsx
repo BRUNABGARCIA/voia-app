@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import MeuFocoHoje from "../components/MeuFocoHoje";
 import {
 	STATUS_PROJETO_BADGE,
 	STATUS_PROJETO_LABEL,
@@ -84,6 +85,8 @@ export default function ParceiroHome({ nome }: { nome: string }) {
 		<div>
 			<h1 className="font-display text-2xl font-light text-voia-neutral-900">Olá, {nome.split(" ")[0]}.</h1>
 			{resumo && <p className="mt-1 text-sm italic text-voia-neutral-500">{resumo.fraseDoDia}</p>}
+
+			<MeuFocoHoje />
 
 			{error && <p className="mt-6 text-sm text-voia-danger">{error}</p>}
 			{!error && !resumo && <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>}
