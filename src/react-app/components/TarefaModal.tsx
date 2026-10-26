@@ -50,7 +50,7 @@ export default function TarefaModal({
 	onSaved,
 }: {
 	projetoId: number;
-	etapaId: number;
+	etapaId: number | null;
 	tarefa: Tarefa | null;
 	onClose: () => void;
 	onSaved: () => void;
@@ -112,7 +112,7 @@ export default function TarefaModal({
 
 			const url = editando
 				? `/api/projetos/${projetoId}/tarefas/${tarefa.id}`
-				: `/api/projetos/${projetoId}/etapas/${etapaId}/tarefas`;
+				: etapaId === null ? `/api/projetos/${projetoId}/tarefas` : `/api/projetos/${projetoId}/etapas/${etapaId}/tarefas`;
 
 			const res = await fetch(url, {
 				method: editando ? "PATCH" : "POST",

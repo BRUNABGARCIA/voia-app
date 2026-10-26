@@ -12,7 +12,8 @@
  * não por empresa — ver docs/FUTURO-SAAS.md).
  */
 
-export const TAMANHO_MAXIMO_BYTES = 20 * 1024 * 1024; // 20 MB — ver README.
+import { TAMANHO_MAXIMO_BYTES } from '../../shared/documentos';
+export { TAMANHO_MAXIMO_BYTES } from '../../shared/documentos';
 
 interface FormatoAceito {
 	extensao: string;
@@ -26,6 +27,7 @@ interface FormatoAceito {
 // assinatura binária confiável (pode ser texto ASCII ou binário conforme
 // exportação do CAD), então para DXF só a extensão + MIME são checados.
 const FORMATOS_ACEITOS: FormatoAceito[] = [
+	{ extensao: "txt", mimeTypesAceitos: ["text/plain", "application/octet-stream"] },
 	{ extensao: "pdf", mimeTypesAceitos: ["application/pdf"], assinatura: [0x25, 0x50, 0x44, 0x46] },
 	{ extensao: "dwg", mimeTypesAceitos: ["application/acad", "image/vnd.dwg", "application/octet-stream"], assinatura: [0x41, 0x43, 0x31, 0x30] },
 	{ extensao: "dxf", mimeTypesAceitos: ["application/dxf", "image/vnd.dxf", "text/plain", "application/octet-stream"] },

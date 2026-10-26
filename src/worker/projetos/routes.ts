@@ -1,3 +1,5 @@
+import { registrarRotasAssistente } from './assistente';
+import { FASES_COMERCIAIS, ESTADOS_DOCUMENTO, dataValida } from '../../shared/operacao-voia';
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireAuth, requireRole, withSession, type AuthEnv } from "../auth/middleware";
@@ -45,15 +47,17 @@ const textoOpcional = (max: number) =>
 		.nullable()
 		.transform((v) => (v ? v : null));
 
+const dataOpcional = z.string().trim().refine(dataValida).optional().nullable().transform(v => v || null);
 const camposProjeto = {
+	fase_comercial: z.enum(FASES_COMERCIAIS).optional().nullable(),
 	cliente_id: z.number().int().positive(),
 	nome: z.string().trim().min(1).max(200),
 	descricao: textoOpcional(2000),
 	status: z.enum(STATUS).optional(),
 	prioridade: z.enum(PRIORIDADES).optional(),
 	valor_contratado: z.number().int().nonnegative().optional().nullable(),
-	data_inicio: textoOpcional(10),
-	prazo_previsto: textoOpcional(10),
+	data_inicio: dataOpcional,
+	prazo_previsto: dataOpcional,
 	cep: textoOpcional(10),
 	logradouro: textoOpcional(200),
 	numero: textoOpcional(20),
@@ -97,9 +101,9 @@ const camposEtapa = {
 	descricao: textoOpcional(2000),
 	ordem: z.number().int().min(0).optional(),
 	status: z.enum(STATUS_ETAPA).optional(),
-	data_inicio_prevista: textoOpcional(10),
-	data_fim_prevista: textoOpcional(10),
-	data_inicio_real: textoOpcional(10),
+	data_inicio_prevista: dataOpcional,
+	data_fim_prevista: dataOpcional,
+	data_inicio_real: dataOpcional,
 	observacao_interna: textoOpcional(2000),
 	visivel_cliente: z.boolean().optional(),
 };
@@ -136,8 +140,8 @@ const camposTarefa = {
 	status: z.enum(STATUS_TAREFA).optional(),
 	prioridade: z.enum(PRIORIDADES).optional(),
 	responsavel_id: z.number().int().positive().optional().nullable(),
-	data_inicio: textoOpcional(10),
-	prazo: textoOpcional(10),
+	data_inicio: dataOpcional,
+	prazo: dataOpcional,
 	visivel_cliente: z.boolean().optional(),
 };
 
@@ -205,6 +209,9 @@ const CATEGORIAS_DOCUMENTO = [
 ] as const;
 
 const camposDocumento = {
+	esperado: z.boolean().optional(),
+	estado_documental: z.enum(ESTADOS_DOCUMENTO).optional().nullable(),
+	prazo: dataOpcional,
 	nome: z.string().trim().min(1).max(200),
 	categoria: z.enum(CATEGORIAS_DOCUMENTO).optional(),
 	etapa_id: z.number().int().positive().optional().nullable(),
@@ -223,6 +230,9 @@ const patchDocumentoSchema = z
 // e são normalizados aqui, em vez de reaproveitar criarDocumentoSchema
 // (JSON). O campo "arquivo" (File) é lido separadamente pela rota.
 const documentoFormSchema = z.object({
+  esperado: z.enum(['true', 'false', '1', '0']).optional().transform(v => v === 'true' || v === '1'),
+  estado_documental: z.enum(ESTADOS_DOCUMENTO).optional().nullable(),
+  prazo: z.string().optional().transform(v => v || null).refine(v => v === null || dataValida(v)),
 	nome: z.string().trim().min(1).max(200),
 	categoria: z.enum(CATEGORIAS_DOCUMENTO).optional(),
 	etapa_id: z
@@ -247,7 +257,7 @@ const documentoFormSchema = z.object({
 const SELECT_DOCUMENTO = `
 	SELECT d.id, d.projeto_id, d.etapa_id, e.nome AS etapa_nome, d.nome, d.categoria, d.descricao,
 	       d.visivel_cliente, d.visivel_parceiro, d.autor_id, u.nome AS autor_nome, d.criado_em, d.atualizado_em,
-	       d.nome_arquivo_original, d.mime_type, d.tamanho_bytes,
+	       d.nome_arquivo_original, d.mime_type, d.tamanho_bytes, d.esperado, d.estado_documental, d.prazo,
 	       (d.storage_key IS NOT NULL) AS possui_arquivo
 	FROM projeto_documentos d
 	LEFT JOIN projeto_etapas e ON e.id = d.etapa_id
@@ -317,7 +327,7 @@ async function gerarCodigoProjeto(db: D1Database): Promise<string> {
 // nova (alguma etapa/tarefa do projeto atrasada) — mesmo fragmento SQL
 // usado no Dashboard, para as duas telas nunca divergirem.
 const SELECT_LISTA = `
-	SELECT p.id, p.codigo, p.nome, p.status, p.prioridade, p.progresso, p.valor_contratado,
+	SELECT p.id, p.codigo, p.nome, p.status, p.fase_comercial, p.prioridade, p.progresso, p.valor_contratado,
 	       p.data_inicio, p.prazo_previsto, p.criado_em, p.atualizado_em,
 	       p.cliente_id, c.nome AS cliente_nome,
 	       p.gerente_id, u.nome AS gerente_nome,
@@ -332,7 +342,7 @@ const SELECT_LISTA = `
 // contratado etc.), por isso lista explícita em vez de "p.*": nunca expõe
 // automaticamente uma coluna sensível futura sem decisão consciente.
 const SELECT_PROJETO_DETALHE = `
-	SELECT p.id, p.cliente_id, p.codigo, p.nome, p.descricao, p.status, p.prioridade, p.progresso,
+	SELECT p.id, p.cliente_id, p.codigo, p.nome, p.descricao, p.status, p.fase_comercial, p.prioridade, p.progresso,
 	       p.valor_contratado, p.data_inicio, p.prazo_previsto, p.cep, p.logradouro, p.numero,
 	       p.complemento, p.bairro, p.cidade, p.estado, p.gerente_id, p.criado_por_id, p.observacoes,
 	       p.criado_em, p.atualizado_em,
@@ -443,7 +453,7 @@ projetos.get("/:id", withSession, requireAuth, requireProjectAccess, async (c) =
 	// próximo prazo relevante) — três leituras leves, sem trazer a lista
 	// inteira de etapas/tarefas (isso só é carregado quando a aba Etapas e
 	// Tarefas é aberta).
-	const [etapaAtual, tarefasAtrasadas, proximoPrazo] = await Promise.all([
+	const [etapaAtual, tarefasAtrasadas, proximoPrazo, contagemEtapas] = await Promise.all([
 		c.env.DB.prepare(
 			"SELECT id, nome, status, data_fim_prevista FROM projeto_etapas WHERE projeto_id = ? AND status <> 'concluida' ORDER BY ordem, id LIMIT 1",
 		)
@@ -463,6 +473,7 @@ projetos.get("/:id", withSession, requireAuth, requireProjectAccess, async (c) =
 		)
 			.bind(id, id)
 			.first<{ proximo: string | null }>(),
+		c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN status='concluida' THEN 1 ELSE 0 END),0) AS concluidas FROM projeto_etapas WHERE projeto_id = ?").bind(id).first<{ n: number; concluidas: number }>(),
 	]);
 
 	return c.json({
@@ -470,6 +481,8 @@ projetos.get("/:id", withSession, requireAuth, requireProjectAccess, async (c) =
 		tiposServico,
 		membros,
 		resumoOperacional: {
+			totalEtapas: contagemEtapas?.n ?? 0,
+ etapasConcluidas: contagemEtapas?.concluidas ?? 0,
 			etapaAtual: etapaAtual ?? null,
 			tarefasAtrasadas: tarefasAtrasadas?.n ?? 0,
 			proximoPrazo: proximoPrazo?.proximo ?? null,
@@ -503,11 +516,11 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 	try {
 		const resultado = await c.env.DB.prepare(
 			`INSERT INTO projetos (
-				cliente_id, codigo, nome, descricao, status, prioridade,
+				cliente_id, codigo, nome, descricao, status, prioridade, fase_comercial,
 				valor_contratado, data_inicio, prazo_previsto,
 				cep, logradouro, numero, complemento, bairro, cidade, estado,
 				gerente_id, criado_por_id, observacoes
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			RETURNING id`,
 		)
 			.bind(
@@ -517,6 +530,7 @@ projetos.post("/", withSession, requireAuth, requireRole("administrador", "gesto
 				dados.descricao,
 				dados.status ?? "planejamento",
 				dados.prioridade ?? "normal",
+				dados.fase_comercial ?? null,
 				dados.valor_contratado ?? null,
 				dados.data_inicio,
 				dados.prazo_previsto,
@@ -572,9 +586,9 @@ projetos.patch(
 		return c.json({ error: "id inválido" }, 400);
 	}
 
-	const existente = await c.env.DB.prepare("SELECT id, status, gerente_id FROM projetos WHERE id = ?")
+	const existente = await c.env.DB.prepare("SELECT id, status, fase_comercial, gerente_id FROM projetos WHERE id = ?")
 		.bind(id)
-		.first<{ id: number; status: string; gerente_id: number | null }>();
+		.first<{ id: number; status: string; fase_comercial: string | null; gerente_id: number | null }>();
 	if (!existente) {
 		return c.json({ error: "projeto não encontrado" }, 404);
 	}
@@ -589,6 +603,7 @@ projetos.patch(
 
 	// Cancelar/arquivar um projeto é uma ação administrativa: colaborador
 	// pode editar os dados operacionais do projeto, mas não esta transição.
+	if (parsed.data.fase_comercial !== undefined && atual.perfil === 'colaborador') return c.json({ error: 'apenas administrador ou gestor pode alterar a fase comercial' }, 403);
 	if (parsed.data.status === "cancelado" && atual.perfil === "colaborador") {
 		return c.json({ error: "apenas administrador ou gestor pode cancelar um projeto" }, 403);
 	}
@@ -637,7 +652,10 @@ projetos.patch(
 		}
 	}
 
-	if (parsed.data.status !== undefined && parsed.data.status !== existente.status) {
+	if (parsed.data.fase_comercial !== undefined && parsed.data.fase_comercial !== existente.fase_comercial) {
+    await registrarEvento(c.env.DB, { projetoId: id, tipo: 'sistema', tipoEvento: 'fase_comercial_alterada', entidadeTipo: 'projeto', entidadeId: id, titulo: 'Fase comercial alterada', descricao: `${existente.fase_comercial || 'Não informada'} → ${parsed.data.fase_comercial || 'Não informada'}`, usuarioId: atual.id, visivelCliente: false });
+  }
+  if (parsed.data.status !== undefined && parsed.data.status !== existente.status) {
 		await registrarEvento(c.env.DB, {
 			projetoId: id,
 			tipo: "sistema",
@@ -1050,6 +1068,7 @@ projetos.delete(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
+		const etapaExcluida = await c.env.DB.prepare('SELECT nome FROM projeto_etapas WHERE id = ? AND projeto_id = ?').bind(etapaId, projetoId).first<{ nome: string }>();
 		const resultado = await c.env.DB.prepare("DELETE FROM projeto_etapas WHERE id = ? AND projeto_id = ?")
 			.bind(etapaId, projetoId)
 			.run();
@@ -1057,6 +1076,7 @@ projetos.delete(
 		if (resultado.meta.changes === 0) {
 			return c.json({ error: "etapa não encontrada" }, 404);
 		}
+		await registrarEvento(c.env.DB, { projetoId, tipo: 'sistema', tipoEvento: 'etapa_excluida', entidadeTipo: 'etapa', entidadeId: etapaId, titulo: `Etapa excluída: ${etapaExcluida?.nome || etapaId}`, descricao: 'As tarefas vinculadas à etapa foram excluídas. Documentos e demais registros foram preservados conforme seus vínculos existentes.', usuarioId: c.get('user')!.id, visivelCliente: false });
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
 
@@ -1514,14 +1534,15 @@ projetos.delete(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const existente = await c.env.DB.prepare("SELECT etapa_id FROM projeto_tarefas WHERE id = ? AND projeto_id = ?")
+		const existente = await c.env.DB.prepare("SELECT etapa_id, nome FROM projeto_tarefas WHERE id = ? AND projeto_id = ?")
 			.bind(tarefaId, projetoId)
-			.first<{ etapa_id: number | null }>();
+			.first<{ etapa_id: number | null; nome: string }>();
 		if (!existente) {
 			return c.json({ error: "tarefa não encontrada" }, 404);
 		}
 
 		await c.env.DB.prepare("DELETE FROM projeto_tarefas WHERE id = ? AND projeto_id = ?").bind(tarefaId, projetoId).run();
+		await registrarEvento(c.env.DB, { projetoId, tipo: 'sistema', tipoEvento: 'tarefa_excluida', entidadeTipo: 'tarefa', entidadeId: tarefaId, titulo: `Tarefa excluída: ${existente.nome}`, usuarioId: c.get('user')!.id, visivelCliente: false });
 
 		const progresso = await sincronizarProgresso(c.env.DB, projetoId);
 		if (existente.etapa_id !== null) {
@@ -1653,6 +1674,7 @@ projetos.post(
 			return c.json({ error: "dados inválidos" }, 400);
 		}
 		const dados = parsed.data;
+    if (c.get('user')!.perfil === 'colaborador' && (dados.esperado || dados.estado_documental || dados.prazo)) return c.json({ error: 'checklist documental exige administrador ou gestor' }, 403);
 		// Só administrador/gestor decidem o que é visível ao Parceiro — ele
 		// nunca libera documento para si mesmo (DEFAULT DENY).
 		if (c.get("user")!.perfil === "colaborador") {
@@ -1670,6 +1692,7 @@ projetos.post(
 
 		// Arquivo é opcional na criação: um registro pode nascer só com
 		// metadados e receber o arquivo depois via "substituir/anexar arquivo".
+		if (['anexado'].includes(dados.estado_documental || '') && !(body['arquivo'] instanceof File && body['arquivo'].size > 0)) return c.json({ error: 'arquivo ausente para o estado informado' }, 400);
 		const arquivoCampo = body["arquivo"];
 		const arquivoFile = arquivoCampo instanceof File && arquivoCampo.size > 0 ? arquivoCampo : null;
 
@@ -1703,8 +1726,8 @@ projetos.post(
 			resultado = await c.env.DB.prepare(
 				`INSERT INTO projeto_documentos (
 					projeto_id, etapa_id, nome, categoria, descricao, visivel_cliente, visivel_parceiro, autor_id,
-					storage_key, nome_arquivo_original, mime_type, tamanho_bytes
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					storage_key, nome_arquivo_original, mime_type, tamanho_bytes, esperado, estado_documental, prazo
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				 RETURNING id`,
 			)
 				.bind(
@@ -1719,7 +1742,7 @@ projetos.post(
 					storageKey,
 					nomeArquivoOriginal,
 					mimeType,
-					tamanhoBytes,
+					tamanhoBytes, dados.esperado ? 1 : 0, dados.estado_documental ?? (dados.esperado ? (storageKey ? 'recebido' : 'pendente') : null), dados.prazo,
 				)
 				.first<{ id: number }>();
 		} catch (err) {
@@ -1736,7 +1759,7 @@ projetos.post(
 			entidadeTipo: "projeto",
 			entidadeId: projetoId,
 			etapaId: dados.etapa_id ?? null,
-			titulo: `Documento "${dados.nome}" adicionado`,
+			titulo: 'Documento adicionado',
 			usuarioId: atual.id,
 			visivelCliente: false,
 		});
@@ -1763,7 +1786,7 @@ projetos.patch(
 		const souParceiro = atual.perfil === "colaborador";
 
 		const existente = await c.env.DB.prepare(
-			`SELECT id FROM projeto_documentos WHERE id = ? AND projeto_id = ?${souParceiro ? " AND visivel_parceiro = 1" : ""}`,
+			`SELECT id, storage_key, estado_documental FROM projeto_documentos WHERE id = ? AND projeto_id = ?${souParceiro ? " AND visivel_parceiro = 1" : ""}`,
 		)
 			.bind(documentoId, projetoId)
 			.first();
@@ -1776,9 +1799,11 @@ projetos.patch(
 		if (!parsed.success) {
 			return c.json({ error: "dados inválidos" }, 400);
 		}
+		if (parsed.success && ['anexado'].includes(parsed.data.estado_documental || '') && !(existente as {storage_key?:string}).storage_key) return c.json({error:'arquivo ausente para o estado informado'},400);
 		// Parceiro nunca altera a própria visibilidade (DEFAULT DENY — só
 		// administrador/gestor decidem isso).
 		if (souParceiro) {
+      if (parsed.data.esperado !== undefined || parsed.data.estado_documental !== undefined || parsed.data.prazo !== undefined) return c.json({ error: 'checklist documental exige administrador ou gestor' }, 403);
 			delete parsed.data.visivel_parceiro;
 		}
 
@@ -1792,6 +1817,7 @@ projetos.patch(
 		}
 
 		const dados: Record<string, unknown> = { ...parsed.data };
+    if (typeof dados.esperado === 'boolean') dados.esperado = dados.esperado ? 1 : 0;
 		if (typeof dados.visivel_cliente === "boolean") {
 			dados.visivel_cliente = dados.visivel_cliente ? 1 : 0;
 		}
@@ -1810,6 +1836,7 @@ projetos.patch(
 			.bind(...valores, documentoId, projetoId)
 			.run();
 
+		if (parsed.data.estado_documental !== undefined) await registrarEvento(c.env.DB, {projetoId,tipo:'sistema',tipoEvento:'estado_documental_alterado',entidadeTipo:'documento',entidadeId:documentoId,titulo:'Estado documental alterado',usuarioId:atual.id,visivelCliente:false});
 		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(documentoId).first();
 		return c.json({ documento });
 	},
@@ -1828,9 +1855,9 @@ projetos.delete(
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const existente = await c.env.DB.prepare("SELECT storage_key FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
+		const existente = await c.env.DB.prepare("SELECT storage_key, nome FROM projeto_documentos WHERE id = ? AND projeto_id = ?")
 			.bind(documentoId, projetoId)
-			.first<{ storage_key: string | null }>();
+			.first<{ storage_key: string | null; nome: string }>();
 		if (!existente) {
 			return c.json({ error: "documento não encontrado" }, 404);
 		}
@@ -1844,6 +1871,9 @@ projetos.delete(
 		if (existente.storage_key) {
 			await removerArquivo(c.env.DOCUMENTOS_BUCKET, existente.storage_key);
 		}
+		// A timeline interna também é legível por parceiros vinculados. Não
+		// expor nomes/conteúdo de documentos privados pelo evento de auditoria.
+		await registrarEvento(c.env.DB, { projetoId, tipo: 'sistema', tipoEvento: 'documento_excluido', entidadeTipo: 'documento', entidadeId: documentoId, titulo: 'Documento excluído', usuarioId: c.get('user')!.id, visivelCliente: false });
 
 		return c.json({ ok: true });
 	},
@@ -1914,6 +1944,7 @@ projetos.post(
 			await removerArquivo(c.env.DOCUMENTOS_BUCKET, existente.storage_key);
 		}
 
+		await c.env.DB.prepare("UPDATE projeto_documentos SET estado_documental = 'recebido' WHERE id = ? AND esperado = 1 AND (estado_documental IS NULL OR estado_documental IN ('pendente', 'pendente_emissao', 'aguardando_etapa'))").bind(documentoId).run();
 		const documento = await c.env.DB.prepare(`${SELECT_DOCUMENTO} WHERE d.id = ?`).bind(documentoId).first();
 		return c.json({ documento });
 	},
@@ -1959,4 +1990,5 @@ projetos.get("/:id/documentos/:documentoId/download", withSession, requireAuth, 
 	});
 });
 
+registrarRotasAssistente(projetos);
 export default projetos;

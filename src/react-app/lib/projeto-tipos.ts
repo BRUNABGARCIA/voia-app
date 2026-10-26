@@ -1,4 +1,5 @@
 export interface Projeto {
+	fase_comercial?: import('../../shared/operacao-voia').FaseComercial | null;
 	id: number;
 	cliente_id: number;
 	cliente_nome: string;
@@ -36,6 +37,8 @@ export interface TipoServico {
 }
 
 export interface ResumoOperacional {
+	totalEtapas?: number;
+ etapasConcluidas?: number;
 	etapaAtual: { id: number; nome: string; status: StatusEtapa; data_fim_prevista: string | null } | null;
 	tarefasAtrasadas: number;
 	proximoPrazo: string | null;
@@ -116,6 +119,9 @@ export type CategoriaDocumento =
 	| "outros";
 
 export interface Documento {
+	esperado?: number;
+	estado_documental?: import('../../shared/operacao-voia').EstadoDocumento | null;
+	prazo?: string | null;
 	id: number;
 	projeto_id: number;
 	etapa_id: number | null;

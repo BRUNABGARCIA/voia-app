@@ -50,7 +50,7 @@ export default function AppShell() {
 			)}
 
 			<aside
-				className={`fixed inset-y-0 left-0 z-40 flex w-60 shrink-0 flex-col overflow-y-auto bg-(--color-sidebar-bg) p-5 transition-transform duration-200 sm:static sm:z-auto sm:translate-x-0 ${
+				className={`fixed inset-y-0 left-0 z-40 flex w-56 shrink-0 flex-col overflow-y-auto bg-(--color-sidebar-bg) p-4 transition-transform duration-200 sm:static sm:z-auto sm:translate-x-0 ${
 					menuAberto ? "translate-x-0" : "-translate-x-full"
 				}`}
 			>
@@ -108,7 +108,7 @@ export default function AppShell() {
 			</aside>
 
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex items-center justify-between border-b border-voia-neutral-100 bg-(--color-surface) px-4 py-4 sm:px-6">
+				<header className="flex h-14 items-center justify-between border-b border-voia-neutral-100 bg-(--color-surface) px-4 sm:px-6">
 					<button
 						type="button"
 						aria-label="Abrir menu"
@@ -119,7 +119,7 @@ export default function AppShell() {
 							<path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
 						</svg>
 					</button>
-					<div className="hidden sm:block" />
+					<div className="hidden w-full max-w-xl sm:block"><div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400"><span>⌕</span><span>Buscar projetos, clientes, documentos…</span><span className="ml-auto rounded border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px]">Ctrl K</span></div></div>
 					<div className="flex items-center gap-4">
 						<div className="text-right">
 							<div className="text-sm font-medium text-voia-neutral-900">{user?.nome}</div>
@@ -137,7 +137,7 @@ export default function AppShell() {
 					</div>
 				</header>
 
-				<main className="flex-1 p-(--space-page)">
+				<main className="flex-1 bg-[#f7f7f5] p-5 sm:p-7">
 					<Outlet />
 				</main>
 			</div>

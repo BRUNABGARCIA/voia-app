@@ -1,3 +1,4 @@
+import { FASES_COMERCIAIS, FASE_COMERCIAL_LABEL } from '../../shared/operacao-voia';
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../contexts/useAuth";
 import {
@@ -21,6 +22,7 @@ interface UsuarioOpcao {
 }
 
 interface FormState {
+ fase_comercial:string;
 	cliente_id: string;
 	nome: string;
 	descricao: string;
@@ -42,6 +44,7 @@ interface FormState {
 
 function projetoParaForm(projeto: Projeto | null): FormState {
 	return {
+		fase_comercial:projeto?.fase_comercial||'',
 		cliente_id: projeto ? String(projeto.cliente_id) : "",
 		nome: projeto?.nome ?? "",
 		descricao: projeto?.descricao ?? "",
@@ -173,6 +176,7 @@ export default function ProjetoModal({
 		setSubmitting(true);
 		try {
 			const payload: Record<string, unknown> = {
+ ...(podeCancelar?{fase_comercial:form.fase_comercial||null}:{}),
 				cliente_id: Number(form.cliente_id),
 				nome: form.nome,
 				descricao: form.descricao || null,
@@ -238,7 +242,7 @@ export default function ProjetoModal({
 				</>
 			}
 		>
-			<div className="space-y-6">
+			<div className="space-y-6">{podeCancelar&&<label className="block text-sm">Fase comercial<select className="ml-2 rounded border p-2" value={form.fase_comercial} onChange={e=>set('fase_comercial')(e.target.value)}><option value="">Não informada</option>{FASES_COMERCIAIS.map(f=><option key={f} value={f}>{FASE_COMERCIAL_LABEL[f]}</option>)}</select></label>}
 				<section>
 					<h3 className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Identificação</h3>
 					<div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -363,7 +367,7 @@ export default function ProjetoModal({
 				</section>
 
 				<section>
-					<h3 className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Endereço da obra</h3>
+					<h3 className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Local do serviço</h3>
 					<div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
 						{campo("CEP", "cep", form, set("cep"), { max: 10 })}
 						{campo("Logradouro", "logradouro", form, set("logradouro"), { max: 200 })}

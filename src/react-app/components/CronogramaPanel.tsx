@@ -1,126 +1,13 @@
-import { useEffect, useState } from "react";
-import { STATUS_ETAPA_BADGE, STATUS_ETAPA_LABEL, formatarData, type Etapa } from "../lib/projeto-tipos";
+import { useEffect, useState } from 'react';
+import { STATUS_TAREFA_LABEL, STATUS_ETAPA_LABEL, formatarData, type Etapa, type Tarefa } from '../lib/projeto-tipos';
+import { ordenarAtividades, horarioDaDescricao } from '../lib/cronograma-projeto';
 
-/**
- * Cronograma leve (sem biblioteca de Gantt) — reaproveita só os dados que
- * projeto_etapas já tem (data_inicio_prevista/data_fim_prevista/progresso
- * via tarefas_concluidas/tarefas_total/status). Desktop mostra barras
- * posicionadas proporcionalmente ao período do projeto; mobile cai para
- * lista cronológica (mesmos dados, só a apresentação muda via classes
- * responsivas — nenhuma requisição extra).
- */
-export default function CronogramaPanel({ projetoId }: { projetoId: number }) {
-	const [etapas, setEtapas] = useState<Etapa[] | null>(null);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		let cancelled = false;
-		fetch(`/api/projetos/${projetoId}/etapas`, { credentials: "same-origin" })
-			.then((res) => {
-				if (!res.ok) throw new Error();
-				return res.json() as Promise<{ etapas: Etapa[] }>;
-			})
-			.then((data) => {
-				if (!cancelled) setEtapas(data.etapas);
-			})
-			.catch(() => {
-				if (!cancelled) setError("Não foi possível carregar o cronograma.");
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [projetoId]);
-
-	if (error) return <p className="mt-6 text-sm text-voia-danger">{error}</p>;
-	if (!etapas) return <p className="mt-6 text-sm text-voia-neutral-500">Carregando…</p>;
-
-	const comDatas = etapas.filter((e) => e.data_inicio_prevista && e.data_fim_prevista);
-	if (etapas.length === 0) {
-		return (
-			<div className="mt-6 rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
-				<p className="text-sm text-voia-neutral-500">Nenhuma etapa cadastrada ainda.</p>
-			</div>
-		);
-	}
-
-	const datasInicio = comDatas.map((e) => new Date(e.data_inicio_prevista!).getTime());
-	const datasFim = comDatas.map((e) => new Date(e.data_fim_prevista!).getTime());
-	// Fallback (nenhuma etapa com datas): só precisa de dois valores
-	// distintos para a matemática de posicionamento não dividir por zero —
-	// não representa "hoje", por isso não usa Date.now() (valor impuro
-	// durante a renderização).
-	const minData = datasInicio.length > 0 ? Math.min(...datasInicio) : 0;
-	const maxData = datasFim.length > 0 ? Math.max(...datasFim) : 86400000;
-	const amplitude = Math.max(maxData - minData, 86400000);
-
-	function progressoEtapa(etapa: Etapa): number {
-		if (etapa.status === "concluida") return 100;
-		if (etapa.tarefas_total > 0) return Math.round((etapa.tarefas_concluidas / etapa.tarefas_total) * 100);
-		return etapa.status === "em_andamento" ? 50 : 0;
-	}
-
-	return (
-		<div className="mt-6 space-y-4">
-			{/* Desktop/tablet: barras posicionadas pelo período do projeto. */}
-			<div className="hidden overflow-x-auto rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:block">
-				<div className="min-w-[640px] space-y-3">
-					{etapas.map((etapa) => {
-						const temData = etapa.data_inicio_prevista && etapa.data_fim_prevista;
-						const inicio = temData ? new Date(etapa.data_inicio_prevista!).getTime() : minData;
-						const fim = temData ? new Date(etapa.data_fim_prevista!).getTime() : minData + 86400000;
-						const left = ((inicio - minData) / amplitude) * 100;
-						const width = Math.max(((fim - inicio) / amplitude) * 100, 2);
-						const progresso = progressoEtapa(etapa);
-						return (
-							<div key={etapa.id} className="flex items-center gap-3">
-								<div className="w-48 shrink-0 truncate text-sm font-medium text-voia-neutral-900" title={etapa.nome}>
-									{etapa.nome}
-								</div>
-								<div className="relative h-6 flex-1 rounded-control bg-voia-beige-100">
-									<div
-										className={`absolute top-0 h-full rounded-control ${
-											etapa.atrasada ? "bg-voia-danger/30" : "bg-voia-green-100"
-										}`}
-										style={{ left: `${left}%`, width: `${width}%` }}
-									>
-										<div
-											className={`h-full rounded-control ${etapa.atrasada ? "bg-voia-danger" : "bg-voia-gold-500"}`}
-											style={{ width: `${progresso}%` }}
-										/>
-									</div>
-								</div>
-								<div className="w-24 shrink-0 text-right text-xs text-voia-neutral-500">
-									{temData ? formatarData(etapa.data_fim_prevista) : "sem prazo"}
-								</div>
-							</div>
-						);
-					})}
-				</div>
-			</div>
-
-			{/* Mobile: lista cronológica — mesma informação, sem barras. */}
-			<div className="space-y-3 sm:hidden">
-				{etapas.map((etapa) => (
-					<div key={etapa.id} className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
-						<div className="flex items-center justify-between gap-2">
-							<span className="font-medium text-voia-neutral-900">{etapa.nome}</span>
-							<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_ETAPA_BADGE[etapa.status]}`}>
-								{STATUS_ETAPA_LABEL[etapa.status]}
-							</span>
-						</div>
-						<div className="mt-1 flex items-center justify-between text-xs">
-							<span className="text-voia-neutral-500">
-								{formatarData(etapa.data_inicio_prevista)} → {formatarData(etapa.data_fim_prevista)}
-							</span>
-							{etapa.atrasada ? (
-								<span className="font-medium text-voia-danger">Atrasada</span>
-							) : (
-								<span className="text-voia-neutral-500">{progressoEtapa(etapa)}%</span>
-							)}
-						</div>
-					</div>
-				))}
-			</div>
-		</div>
-	);
+export default function CronogramaPanel({projetoId}:{projetoId:number}) {
+  const [dados,setDados]=useState<{etapas:Etapa[];tarefas:Tarefa[]}|null>(null),[erro,setErro]=useState<string|null>(null);
+  useEffect(()=>{let cancelado=false;Promise.all(['/etapas','/tarefas'].map(async rota=>{const r=await fetch(`/api/projetos/${projetoId}${rota}`,{credentials:'same-origin'});if(!r.ok)throw Error();return r.json();})).then(([e,t])=>{if(!cancelado)setDados({etapas:e.etapas,tarefas:t.tarefas});}).catch(()=>{if(!cancelado)setErro('Não foi possível carregar o cronograma.');});return()=>{cancelado=true;};},[projetoId]);
+  if(erro)return <p role="alert" className="mt-6 text-sm text-red-700">{erro}</p>;
+  if(!dados)return <p className="mt-6 text-sm text-neutral-500">Carregando…</p>;
+  const tarefas=ordenarAtividades(dados.tarefas),datadas=tarefas.filter(t=>t.prazo),semData=tarefas.filter(t=>!t.prazo);
+  function item(t:Tarefa){const hora=horarioDaDescricao(t.descricao);return <li key={t.id} className="relative grid gap-3 border-l-2 border-amber-200 pb-6 pl-5 sm:grid-cols-[90px_1fr]"><span aria-hidden="true" className={`absolute -left-[7px] top-1 h-3 w-3 rounded-full border-2 border-amber-400 ${t.prazo?'bg-amber-400':'bg-white'}`}/><div className="text-xs text-neutral-500">{t.prazo&&<time dateTime={t.prazo} className="block font-semibold text-neutral-800">{formatarData(t.prazo)}</time>}{hora&&<span className="mt-1 block text-sm font-medium">{hora}</span>}</div><div className="rounded-xl border border-neutral-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold">{t.nome}</h4><span className="rounded-full bg-neutral-100 px-2 py-1 text-xs">{STATUS_TAREFA_LABEL[t.status]}</span></div><p className="mt-1 text-xs text-neutral-500">{dados!.etapas.find(e=>e.id===t.etapa_id)?.nome||'Sem etapa'} · {t.responsavel_nome||'Sem responsável'}</p>{t.descricao&&<p className="mt-2 whitespace-pre-wrap text-xs text-neutral-500">{t.descricao}</p>}</div></li>;}
+  return <div className="mt-6 space-y-5"><section className="rounded-card border border-neutral-100 bg-white p-5"><h3 className="font-semibold">Tarefas e próximos prazos</h3><p className="mt-1 text-xs text-neutral-500">Mesmas tarefas do projeto e da Agenda/Meu Dia. Nenhuma data é criada por esta visualização.</p>{!tarefas.length&&<p className="mt-4 text-sm text-neutral-500">Nenhuma atividade cadastrada.</p>}<ol aria-label="Atividades com data" className="ml-2 mt-5">{datadas.map(item)}</ol>{!!semData.length&&<div className="mt-3"><h4 className="mb-4 text-xs font-bold uppercase tracking-wide text-neutral-500">A agendar</h4><ol aria-label="Atividades a agendar" className="ml-2">{semData.map(item)}</ol></div>}</section>{!!dados.etapas.length&&<section className="rounded-card border border-neutral-100 bg-white p-5"><h3 className="font-semibold">Períodos das etapas</h3><ul className="mt-3 divide-y divide-neutral-100">{[...dados.etapas].sort((a,b)=>(a.data_inicio_prevista||'9999').localeCompare(b.data_inicio_prevista||'9999')||a.ordem-b.ordem).map(e=><li key={e.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm"><span>{e.nome} · {STATUS_ETAPA_LABEL[e.status]}</span><span className="text-xs text-neutral-500">{e.data_inicio_prevista||e.data_fim_prevista?`${formatarData(e.data_inicio_prevista)} → ${formatarData(e.data_fim_prevista)}`:'A agendar'}</span></li>)}</ul></section>}</div>;
 }

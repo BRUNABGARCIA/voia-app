@@ -13,6 +13,7 @@ export default defineConfig(async () => {
 					// Binding só de teste (não existe em produção) para o setup file
 					// poder aplicar as migrations reais via applyD1Migrations().
 					bindings: { TEST_MIGRATIONS: migrations },
+					d1Databases: { DB_LEGADO: 'rodada-3-legado-teste' },
 				},
 			}),
 		],

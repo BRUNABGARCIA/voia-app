@@ -1,3 +1,5 @@
+import DocumentosEsperadosChecklist from './DocumentosEsperadosChecklist';
+import { ESTADO_DOCUMENTO_LABEL } from '../../shared/operacao-voia';
 import { useCallback, useEffect, useState } from "react";
 import DocumentoModal from "./DocumentoModal";
 import {
@@ -28,6 +30,7 @@ export default function DocumentosPanel({
 	const [etapas, setEtapas] = useState<Etapa[]>([]);
 	const [categoriaFiltro, setCategoriaFiltro] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [criandoEsperado,setCriandoEsperado]=useState(false);
 	const [criando, setCriando] = useState(false);
 	const [editando, setEditando] = useState<Documento | null>(null);
 	const [removendoId, setRemovendoId] = useState<number | null>(null);
@@ -59,6 +62,7 @@ export default function DocumentosPanel({
 	}, [projetoId]);
 
 	function handleSaved() {
+ setCriandoEsperado(false);
 		setCriando(false);
 		setEditando(null);
 		carregar();
@@ -81,7 +85,7 @@ export default function DocumentosPanel({
 	}
 
 	async function remover(documento: Documento) {
-		if (!window.confirm(`Remover o registro do documento "${documento.nome}"?`)) return;
+		if (!window.confirm(`Remover o documento "${documento.nome}"? O registro e o arquivo armazenado serão excluídos. Referências a este documento serão desvinculadas; registros relacionados serão preservados. Esta ação não pode ser desfeita.`)) return;
 		setError(null);
 		setRemovendoId(documento.id);
 		try {
@@ -99,7 +103,7 @@ export default function DocumentosPanel({
 	}
 
 	return (
-		<div className="mt-6 space-y-4">
+		<div className="mt-6 space-y-4"><DocumentosEsperadosChecklist projetoId={projetoId} documentos={(documentos||[]).filter(d=>d.esperado===1)} podeGerenciar={podeExcluir} podeEditar={podeEditar} editar={setEditando} remover={remover} adicionar={()=>setCriandoEsperado(true)} atualizar={carregar}/><h3 className="font-semibold">Documentos registrados</h3>
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<select
 					value={categoriaFiltro}
@@ -134,7 +138,7 @@ export default function DocumentosPanel({
 
 			{documentos && documentos.length > 0 && (
 				<ul className="space-y-2">
-					{documentos.map((doc) => (
+					{documentos.filter(d=>d.esperado!==1).map((doc) => (
 						<li
 							key={doc.id}
 							className="flex flex-col gap-2 rounded-control border border-voia-neutral-100 bg-(--color-surface) p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -166,7 +170,8 @@ export default function DocumentosPanel({
 										</span>
 									)}
 								</div>
-								{doc.descricao && <p className="mt-1 text-sm text-voia-neutral-700">{doc.descricao}</p>}
+								{doc.esperado === 1 && <p className="mt-2 text-sm font-medium">Documento esperado · {doc.estado_documental ? ESTADO_DOCUMENTO_LABEL[doc.estado_documental] : 'Não informado'} · Prazo: {doc.prazo || 'Não informado'}</p>}
+                {doc.descricao && <p className="mt-1 text-sm text-voia-neutral-700">{doc.descricao}</p>}
 								<p className="mt-1 text-xs text-voia-neutral-500">
 									{formatarDataHora(doc.criado_em)}
 									{doc.autor_nome && ` · ${doc.autor_nome}`}
@@ -201,17 +206,17 @@ export default function DocumentosPanel({
 											onClick={() => setEditando(doc)}
 											className="text-xs font-medium text-voia-green-800 hover:underline"
 										>
-											Editar
+											{doc.esperado === 1 && doc.possui_arquivo !== 1 ? 'Revisar / Fazer upload' : 'Editar'}
 										</button>
 										{podeExcluir && (
-											<button
+											<details className="text-xs"><summary aria-label={`Ações de ${doc.nome}`} className="cursor-pointer">...</summary><button
 												type="button"
 												onClick={() => remover(doc)}
 												disabled={removendoId === doc.id}
 												className="text-xs font-medium text-voia-danger hover:underline disabled:opacity-(--opacity-disabled)"
 											>
 												Remover
-											</button>
+											</button></details>
 										)}
 									</>
 								)}
@@ -221,8 +226,8 @@ export default function DocumentosPanel({
 				</ul>
 			)}
 
-			{criando && (
-				<DocumentoModal projetoId={projetoId} etapas={etapas} documento={null} onClose={() => setCriando(false)} onSaved={handleSaved} />
+			{(criando || criandoEsperado) && (
+				<DocumentoModal projetoId={projetoId} etapas={etapas} documento={null} esperadoInicial={criandoEsperado} onClose={() => {setCriando(false);setCriandoEsperado(false);}} onSaved={handleSaved} />
 			)}
 			{editando && (
 				<DocumentoModal

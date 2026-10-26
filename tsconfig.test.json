@@ -8,5 +8,6 @@
 		"vitest.config.ts",
 		"worker-configuration.d.ts",
 		"node_modules/@cloudflare/vitest-plugin/types/cloudflare-test.d.ts"
-	]
+	],
+	"exclude": ["test/ui"]
 }

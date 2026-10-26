@@ -1,3 +1,6 @@
+import { mensagemEtapas } from '../../shared/situacao-etapas';
+import AssistenteVoia from '../components/AssistenteVoia';
+import { FASE_COMERCIAL_LABEL } from '../../shared/operacao-voia';
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useAuth } from "../contexts/useAuth";
@@ -8,6 +11,7 @@ import CronogramaPanel from "../components/CronogramaPanel";
 import EtapasPanel from "../components/EtapasPanel";
 import AndamentoPanel from "../components/AndamentoPanel";
 import DocumentosPanel from "../components/DocumentosPanel";
+import { localProjeto } from '../lib/local-projeto';
 import ProgressoBar from "../components/ProgressoBar";
 import Tabs from "../components/Tabs";
 import {
@@ -57,6 +61,8 @@ export default function ProjetoWorkspace() {
 	const [resumo, setResumo] = useState<ResumoOperacional | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [aba, setAba] = useState("visao-geral");
+	const [revisao,setRevisao]=useState(0);
+	const [cancelando, setCancelando] = useState(false);
 	const [editando, setEditando] = useState(false);
 
 	const podeEditar = user ? PERFIS_QUE_EDITAM.includes(user.perfil) : false;
@@ -106,9 +112,17 @@ export default function ProjetoWorkspace() {
 		return <p className="text-sm text-voia-neutral-500">Carregando…</p>;
 	}
 
-	const endereco = [projeto.logradouro, projeto.numero, projeto.bairro, projeto.cidade, projeto.estado]
-		.filter(Boolean)
-		.join(", ");
+	async function cancelarCadastro() {
+    if (!window.confirm('Cancelar este projeto criado por engano? O projeto sairá do andamento ativo. Cliente, tarefas, etapas, documentos, obras, financeiro e histórico serão preservados; nenhum registro será excluído.')) return;
+    setCancelando(true);
+    try {
+      const res = await fetch(`/api/projetos/${projeto!.id}`, { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelado' }) });
+      if (!res.ok) throw new Error('Não foi possível cancelar o projeto.');
+      carregar();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Não foi possível cancelar.'); }
+    finally { setCancelando(false); }
+  }
+  const local = localProjeto(projeto);
 	const atrasado = projetoAtrasado(projeto);
 
 	return (
@@ -155,8 +169,12 @@ export default function ProjetoWorkspace() {
 				)}
 			</div>
 
-			<div className="mt-6">
-				<Tabs abas={ABAS} ativa={aba} onChange={setAba} />
+      {podeGerenciarEquipe && <AssistenteVoia projetoId={projeto.id} onSaved={()=>{carregar();setRevisao(r=>r+1);}}/>}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-xl border border-voia-neutral-100 bg-white px-4 py-3"><span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Fase comercial</span><strong className="mt-1 block text-sm text-voia-neutral-900">{projeto.fase_comercial ? FASE_COMERCIAL_LABEL[projeto.fase_comercial] : 'Não informada'}</strong></div>
+        {podeGerenciarEquipe && projeto.status !== 'cancelado' && <details className="text-right text-sm"><summary className="cursor-pointer">Mais ações...</summary><button disabled={cancelando} onClick={cancelarCadastro} className="mt-2 rounded border px-3 py-2 text-voia-danger">Cancelar cadastro criado por engano</button></details>}
+      </div>
+      <div className="mt-4"><Tabs abas={ABAS} ativa={aba} onChange={setAba} />
 			</div>
 
 			{aba === "visao-geral" && (
@@ -231,7 +249,7 @@ export default function ProjetoWorkspace() {
 											)}
 										</div>
 									) : (
-										<p className="mt-1 text-sm text-voia-neutral-500">Todas as etapas concluídas.</p>
+										<p className="mt-1 text-sm text-voia-neutral-500">{mensagemEtapas(resumo.totalEtapas,resumo.etapasConcluidas)}</p>
 									)}
 								</div>
 								{resumo.tarefasAtrasadas > 0 && (
@@ -253,11 +271,14 @@ export default function ProjetoWorkspace() {
 					)}
 
 					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
-						<h2 className="font-display text-lg text-voia-green-900">Endereço da obra</h2>
+						<h2 className="font-display text-lg text-voia-green-900">Local do serviço</h2>
 						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-							{linha("Endereço", endereco)}
+							{linha("Local/Condomínio", local.local || "Não informado")}
+                {linha("Endereço completo", local.endereco || 'Não informado — pendente')}
+                {linha("Cidade", projeto.cidade || "Não informada")}
+                {linha("UF", projeto.estado || "Não informada")}
 							{linha("Complemento", projeto.complemento)}
-							{linha("CEP", projeto.cep)}
+							{linha("CEP", projeto.cep || "Não informado")}
 						</div>
 					</div>
 
@@ -285,7 +306,7 @@ export default function ProjetoWorkspace() {
 			)}
 
 			{aba === "etapas" && (
-				<EtapasPanel
+				<EtapasPanel key={revisao}
 					projetoId={projeto.id}
 					podeEditar={podeEditar}
 					podeExcluir={podeExcluirEtapa}
@@ -293,13 +314,13 @@ export default function ProjetoWorkspace() {
 				/>
 			)}
 
-			{aba === "cronograma" && <CronogramaPanel projetoId={projeto.id} />}
+			{aba === "cronograma" && <CronogramaPanel key={revisao} projetoId={projeto.id} />}
 
 			{aba === "documentos" && (
-				<DocumentosPanel projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} />
+				<DocumentosPanel key={revisao} projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} />
 			)}
 
-			{aba === "andamento" && <AndamentoPanel projetoId={projeto.id} podeEditar={podeEditar} />}
+			{aba === "andamento" && <AndamentoPanel key={revisao} projetoId={projeto.id} podeEditar={podeEditar} />}
 
 			{aba === "equipe" && (
 				<>

@@ -1,3 +1,4 @@
+import { condicionadaAoAceite, type FaseComercial } from '../../shared/operacao-voia';
 /**
  * Deriva e persiste o status de uma etapa a partir do andamento das suas
  * próprias tarefas — fonte única desta regra, chamada sempre que uma
@@ -23,8 +24,8 @@ interface ResultadoSincronizacao {
 }
 
 export async function sincronizarStatusEtapa(db: D1Database, etapaId: number): Promise<ResultadoSincronizacao | null> {
-	const etapa = await db.prepare("SELECT status, data_inicio_real FROM projeto_etapas WHERE id = ?").bind(etapaId).first<{
-		status: string;
+	const etapa = await db.prepare("SELECT e.status, e.data_inicio_real, p.fase_comercial FROM projeto_etapas e JOIN projetos p ON p.id=e.projeto_id WHERE e.id = ?").bind(etapaId).first<{
+		status: string; fase_comercial: FaseComercial | null;
 		data_inicio_real: string | null;
 	}>();
 	if (!etapa) return null;
@@ -34,10 +35,10 @@ export async function sincronizarStatusEtapa(db: D1Database, etapaId: number): P
 			`SELECT
 				SUM(CASE WHEN status <> 'cancelada' THEN 1 ELSE 0 END) AS total,
 				SUM(CASE WHEN status = 'concluida' THEN 1 ELSE 0 END) AS concluidas,
-				SUM(CASE WHEN status NOT IN ('pendente', 'cancelada') THEN 1 ELSE 0 END) AS comAtividade
+				SUM(CASE WHEN status NOT IN ('pendente', 'cancelada') AND (? = 0 OR status <> 'aguardando') THEN 1 ELSE 0 END) AS comAtividade
 			 FROM projeto_tarefas WHERE etapa_id = ?`,
 		)
-		.bind(etapaId)
+		.bind(condicionadaAoAceite(etapa.fase_comercial) ? 1 : 0, etapaId)
 		.first<{ total: number | null; concluidas: number | null; comAtividade: number | null }>();
 
 	const total = contagem?.total ?? 0;

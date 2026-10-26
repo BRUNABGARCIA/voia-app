@@ -14,7 +14,7 @@ interface EventoAutomatico {
 	// "obra"/"rdo"/"ocorrencia": eventos da Gestão de Obras (Rodada 04),
 	// mesma tabela/filosofia — entidade_tipo/entidade_id continuam colunas
 	// livres (sem CHECK, ver 0018), nenhuma migration necessária para isso.
-	entidadeTipo: "etapa" | "tarefa" | "projeto" | "obra" | "rdo" | "ocorrencia";
+	entidadeTipo: "etapa" | "tarefa" | "projeto" | "obra" | "rdo" | "ocorrencia" | "documento";
 	entidadeId: number;
 	titulo: string;
 	descricao?: string | null;

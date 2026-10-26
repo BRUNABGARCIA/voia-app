@@ -1,3 +1,4 @@
+import { mensagemEtapas } from '../../shared/situacao-etapas';
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import ProgressoBar from "../components/ProgressoBar";
@@ -148,7 +149,7 @@ function PortalProcessoConteudo({ id }: { id: string | undefined }) {
 							</div>
 						</>
 					) : (
-						<p className="mt-2 text-sm text-voia-neutral-500">Todas as etapas concluídas.</p>
+						<p className="mt-2 text-sm text-voia-neutral-500">{mensagemEtapas(etapas.length,etapas.filter(e=>e.status==='concluida').length)}</p>
 					)}
 				</div>
 

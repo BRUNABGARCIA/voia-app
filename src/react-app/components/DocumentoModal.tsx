@@ -1,3 +1,4 @@
+import { ESTADOS_DOCUMENTO, ESTADO_DOCUMENTO_LABEL, type EstadoDocumento } from '../../shared/operacao-voia';
 import { useState, type FormEvent } from "react";
 import ModalShell from "./ModalShell";
 import { useAuth } from "../contexts/useAuth";
@@ -12,10 +13,13 @@ import {
 // Mesma lista aceita pelo backend (src/worker/storage/documentos.ts) — só
 // para dar feedback imediato ao usuário; a validação que vale de verdade
 // (tamanho real, assinatura de bytes) acontece sempre no servidor.
-const EXTENSOES_ACEITAS = ["pdf", "dwg", "dxf", "doc", "docx", "xls", "xlsx", "jpg", "jpeg", "png", "zip"];
-const TAMANHO_MAXIMO_MB = 20;
+import { EXTENSOES_DOCUMENTO as EXTENSOES_ACEITAS, TAMANHO_MAXIMO_BYTES } from '../../shared/documentos';
+const TAMANHO_MAXIMO_MB = TAMANHO_MAXIMO_BYTES / (1024 * 1024);
 
 interface FormState {
+ esperado: boolean;
+ estado_documental: EstadoDocumento | null;
+ prazo: string;
 	nome: string;
 	categoria: string;
 	etapa_id: string;
@@ -26,6 +30,7 @@ interface FormState {
 
 function documentoParaForm(documento: Documento | null): FormState {
 	return {
+		esperado: documento?.esperado === 1, estado_documental: documento?.estado_documental ?? null, prazo: documento?.prazo || '',
 		nome: documento?.nome ?? "",
 		categoria: documento?.categoria ?? "outros",
 		etapa_id: documento?.etapa_id ? String(documento.etapa_id) : "",
@@ -45,19 +50,21 @@ export default function DocumentoModal({
 	projetoId,
 	etapas,
 	documento,
+ esperadoInicial = false,
 	onClose,
 	onSaved,
 }: {
 	projetoId: number;
 	etapas: Etapa[];
 	documento: Documento | null;
+ esperadoInicial?: boolean;
 	onClose: () => void;
 	onSaved: () => void;
 }) {
 	const { user } = useAuth();
 	const podeDefinirVisibilidadeParceiro = user?.perfil === "administrador" || user?.perfil === "gestor";
 	const editando = documento !== null;
-	const [form, setForm] = useState<FormState>(() => documentoParaForm(documento));
+	const [form, setForm] = useState<FormState>(() => ({...documentoParaForm(documento), esperado:documento ? documento.esperado===1 : esperadoInicial, estado_documental: documento?.estado_documental || (esperadoInicial ? 'pendente' : null)}));
 	const [arquivo, setArquivo] = useState<File | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [submitting, setSubmitting] = useState(false);
@@ -96,6 +103,7 @@ export default function DocumentoModal({
 		try {
 			if (editando) {
 				const payload = {
+					...(podeDefinirVisibilidadeParceiro ? { esperado: form.esperado, estado_documental: form.estado_documental || (form.esperado ? 'pendente' : null), prazo: form.prazo || null } : {}),
 					nome: form.nome,
 					categoria: form.categoria,
 					etapa_id: form.etapa_id ? Number(form.etapa_id) : null,
@@ -116,6 +124,7 @@ export default function DocumentoModal({
 			} else {
 				const dados = new FormData();
 				dados.set("nome", form.nome);
+        if (podeDefinirVisibilidadeParceiro) { dados.set('esperado',String(form.esperado)); if(form.estado_documental || form.esperado) dados.set('estado_documental',form.estado_documental || 'pendente'); if(form.prazo) dados.set('prazo',form.prazo); }
 				dados.set("categoria", form.categoria);
 				if (form.etapa_id) dados.set("etapa_id", form.etapa_id);
 				if (form.descricao) dados.set("descricao", form.descricao);
@@ -194,6 +203,7 @@ export default function DocumentoModal({
 			}
 		>
 			<div className="space-y-4">
+        {podeDefinirVisibilidadeParceiro && <div className="space-y-2 rounded-xl border p-3"><label><input type="checkbox" checked={form.esperado} onChange={e=>set('esperado')(e.target.checked)}/> Documento esperado</label><label className="block">Estado documental<select className="ml-2 rounded border p-2" value={form.estado_documental||''} onChange={e=>set('estado_documental')(e.target.value as EstadoDocumento || null)}><option value="">Não informado (legado)</option>{ESTADOS_DOCUMENTO.map(s=><option key={s} value={s}>{ESTADO_DOCUMENTO_LABEL[s]}</option>)}</select></label><label>Prazo<input type="date" className="ml-2 rounded border p-2" value={form.prazo} onChange={e=>set('prazo')(e.target.value)}/></label><p className="text-xs">O estado Emitido é independente do arquivo. Marque Não aplicável quando dispensado.</p></div>}
 				{!editando && (
 					<div>
 						<label htmlFor="documento-arquivo" className="block text-sm font-medium text-voia-neutral-900">
