@@ -1,0 +1,2 @@
+import type { FotoPendente } from '../components/ObraFotosSelecao';
+export async function enviarFotoObra(obraId:number,foto:FotoPendente,rdoId?:number){const form=new FormData();form.set('arquivo',foto.arquivo);form.set('legenda',foto.legenda);if(rdoId)form.set('rdo_id',String(rdoId));const r=await fetch(`/api/obras/${obraId}/fotos`,{method:'POST',credentials:'same-origin',body:form});if(!r.ok){const d=await r.json().catch(()=>null);throw Error(`${foto.arquivo.name}: ${d?.error||'não foi possível enviar a foto.'}`);}}

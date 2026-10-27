@@ -224,7 +224,8 @@ const patchRdoSchema = z
 const SELECT_RDO = `
 	SELECT r.id, r.obra_id, r.data, r.criado_por_id, u.nome AS criado_por_nome,
 	       r.condicoes_climaticas, r.mao_de_obra, r.servicos_executados, r.equipamentos,
-	       r.materiais, r.ocorrencias, r.observacoes, r.criado_em, r.atualizado_em
+	       r.materiais, r.ocorrencias, r.observacoes, r.criado_em, r.atualizado_em,
+           (SELECT COUNT(*) FROM obra_fotos f WHERE f.rdo_id=r.id AND f.obra_id=r.obra_id) AS fotos_total
 	FROM obra_rdo r
 	LEFT JOIN usuarios u ON u.id = r.criado_por_id
 `;
@@ -326,9 +327,9 @@ obras.patch(
 			valores.push(valor);
 		}
 
-		await c.env.DB.prepare(`UPDATE obra_rdo SET ${campos.join(", ")} WHERE id = ?`)
-			.bind(...valores, rdoId)
-			.run();
+		const atualizacoes=[c.env.DB.prepare(`UPDATE obra_rdo SET ${campos.join(", ")} WHERE id = ? AND obra_id = ?`).bind(...valores,rdoId,obraId)];
+        if(parsed.data.data!==undefined)atualizacoes.push(c.env.DB.prepare("UPDATE obra_fotos SET data = ? WHERE rdo_id = ? AND obra_id = ?").bind(parsed.data.data,rdoId,obraId));
+        await c.env.DB.batch(atualizacoes);
 
 		const rdo = await c.env.DB.prepare(`${SELECT_RDO} WHERE r.id = ?`).bind(rdoId).first();
 		return c.json({ rdo });
@@ -357,6 +358,7 @@ const patchOcorrenciaSchema = z
 		responsavel_id: z.number().int().positive().optional().nullable(),
 		prazo: textoOpcional(10),
 	})
+    .strict()
 	.partial()
 	.refine((data) => Object.keys(data).length > 0, { message: "nada para atualizar" });
 
@@ -464,7 +466,12 @@ obras.patch(
 			return c.json({ error: "dados inválidos" }, 400);
 		}
 
-		const dados: Record<string, unknown> = { ...parsed.data };
+		if(parsed.data.responsavel_id){
+          const projetoId=await obraEProjetoId(c.env.DB,obraId);
+          const membro=await c.env.DB.prepare('SELECT u.id FROM projeto_membros m JOIN usuarios u ON u.id=m.usuario_id WHERE m.projeto_id=? AND m.usuario_id=? AND u.ativo=1').bind(projetoId,parsed.data.responsavel_id).first();
+          if(!membro)return c.json({error:'Responsável deve ser membro ativo do projeto da Obra.'},400);
+        }
+        const dados: Record<string, unknown> = { ...parsed.data };
 		let resolvida = false;
 		if (typeof dados.status === "string") {
 			if (dados.status === "resolvida" && existente.status !== "resolvida") {
@@ -482,9 +489,12 @@ obras.patch(
 			valores.push(valor);
 		}
 
-		await c.env.DB.prepare(`UPDATE obra_ocorrencias SET ${campos.join(", ")} WHERE id = ?`)
-			.bind(...valores, ocorrenciaId)
+		await c.env.DB.prepare(`UPDATE obra_ocorrencias SET ${campos.join(", ")} WHERE id = ? AND obra_id = ?`)
+			.bind(...valores, ocorrenciaId, obraId)
 			.run();
+
+        const projetoEvento=await obraEProjetoId(c.env.DB,obraId);
+        if(projetoEvento!==null)await registrarEvento(c.env.DB,{projetoId:projetoEvento,tipo:'sistema',tipoEvento:'ocorrencia_editada',entidadeTipo:'ocorrencia',entidadeId:ocorrenciaId,titulo: `Ocorrência "${existente.titulo}" atualizada`,descricao:'Campos atualizados: '+Object.keys(parsed.data).join(', '),usuarioId:c.get('user')!.id,visivelCliente:false});
 
 		if (resolvida) {
 			const projetoId = await obraEProjetoId(c.env.DB, obraId);
@@ -514,18 +524,25 @@ obras.patch(
 const EXTENSOES_FOTO = ["jpg", "jpeg", "png"];
 
 const SELECT_FOTO = `
-	SELECT f.id, f.obra_id, f.rdo_id, f.legenda, f.data, f.enviado_por_id, u.nome AS enviado_por_nome,
+	SELECT f.id, f.obra_id, f.rdo_id, f.legenda, COALESCE(r.data,f.data) AS data, r.data AS rdo_data, f.enviado_por_id, u.nome AS enviado_por_nome,
 	       f.nome_arquivo_original, f.mime_type, f.tamanho_bytes, f.criado_em
 	FROM obra_fotos f
+    LEFT JOIN obra_rdo r ON r.id=f.rdo_id AND r.obra_id=f.obra_id
 	LEFT JOIN usuarios u ON u.id = f.enviado_por_id
 `;
 
-obras.get("/:id/fotos", withSession, requireAuth, requireObraAccess, async (c) => {
-	const obraId = Number(c.req.param("id"));
-	const { results } = await c.env.DB.prepare(`${SELECT_FOTO} WHERE f.obra_id = ? ORDER BY f.data DESC, f.id DESC`)
-		.bind(obraId)
-		.all();
-	return c.json({ fotos: results });
+async function escopoRdoFoto(db:D1Database,obraId:number,valor:string|undefined):Promise<{ok:true;id:number|null}|{ok:false;status:400|404;error:string}>{
+  if(valor===undefined)return {ok:true,id:null};
+  const id=Number(valor);if(!valor.trim()||!Number.isSafeInteger(id)||id<=0)return {ok:false,status:400,error:'rdo_id inválido'};
+  const rdo=await db.prepare('SELECT id FROM obra_rdo WHERE id=? AND obra_id=?').bind(id,obraId).first();
+  return rdo?{ok:true,id}:{ok:false,status:404,error:'RDO não encontrado nesta obra'};
+}
+
+obras.get('/:id/fotos',withSession,requireAuth,requireObraAccess,async c=>{
+  const obraId=Number(c.req.param('id')),escopo=await escopoRdoFoto(c.env.DB,obraId,c.req.query('rdo_id'));
+  if(!escopo.ok)return c.json({error:escopo.error},escopo.status);
+  const {results}=await c.env.DB.prepare(`${SELECT_FOTO} WHERE f.obra_id=?${escopo.id===null?'':' AND f.rdo_id=?'} ORDER BY COALESCE(r.data,f.data) DESC,f.id DESC`).bind(...(escopo.id===null?[obraId]:[obraId,escopo.id])).all();
+  return c.json({fotos:results});
 });
 
 obras.post(
@@ -575,6 +592,7 @@ obras.post(
 		const rdoIdForm = form.get("rdo_id");
 
 		let rdoId: number | null = null;
+        let dataRdo:string|null=null;
 		if (typeof rdoIdForm === "string" && rdoIdForm.trim()) {
 			const candidato = Number(rdoIdForm);
 			if (!Number.isInteger(candidato) || candidato <= 0) {
@@ -582,30 +600,31 @@ obras.post(
 			}
 			// Nunca confia no rdo_id enviado sem confirmar que pertence a esta
 			// mesma obra — evita amarrar foto a RDO de outra obra/projeto.
-			const rdo = await c.env.DB.prepare("SELECT id FROM obra_rdo WHERE id = ? AND obra_id = ?")
+			const rdo = await c.env.DB.prepare("SELECT id,data FROM obra_rdo WHERE id = ? AND obra_id = ?")
 				.bind(candidato, obraId)
-				.first();
+				.first<{id:number;data:string}>();
 			if (!rdo) {
 				return c.json({ error: "RDO não encontrado nesta obra" }, 400);
 			}
-			rdoId = candidato;
+			rdoId = candidato;dataRdo=rdo.data;
 		}
 
 		const storageKey = gerarStorageKey(projetoId, arquivoRecebido.nomeOriginal);
 		await salvarArquivo(c.env.DOCUMENTOS_BUCKET, storageKey, arquivoRecebido);
 
 		const autor = c.get("user")!;
-		const data = typeof dataForm === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dataForm) ? dataForm : new Date().toISOString().slice(0, 10);
+		const data = dataRdo ?? (typeof dataForm === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dataForm) ? dataForm : new Date().toISOString().slice(0, 10));
 
 		const resultado = await c.env.DB.prepare(
 			`INSERT INTO obra_fotos (obra_id, rdo_id, legenda, data, enviado_por_id, storage_key, nome_arquivo_original, mime_type, tamanho_bytes)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, COALESCE((SELECT data FROM obra_rdo WHERE id=? AND obra_id=?),?), ?, ?, ?, ?, ?)
 			 RETURNING id`,
 		)
 			.bind(
 				obraId,
 				rdoId,
 				typeof legenda === "string" && legenda.trim() ? legenda.trim().slice(0, 500) : null,
+                rdoId,obraId,
 				data,
 				autor.id,
 				storageKey,
@@ -620,9 +639,26 @@ obras.post(
 	},
 );
 
+const editarFotoSchema=z.object({legenda:z.string().trim().max(500).nullable()}).strict();
+obras.patch('/:id/fotos/:fotoId',withSession,requireAuth,requireRole('administrador','gestor','colaborador'),requireObraAccess,async c=>{
+  const obraId=Number(c.req.param('id')),fotoId=Number(c.req.param('fotoId'));
+  if(!Number.isSafeInteger(fotoId)||fotoId<=0)return c.json({error:'id inválido'},400);
+  const escopo=await escopoRdoFoto(c.env.DB,obraId,c.req.query('rdo_id'));
+  if(!escopo.ok)return c.json({error:escopo.error},escopo.status);
+  const existente=await c.env.DB.prepare(`SELECT id FROM obra_fotos WHERE id=? AND obra_id=?${escopo.id===null?'':' AND rdo_id=?'}`).bind(...(escopo.id===null?[fotoId,obraId]:[fotoId,obraId,escopo.id])).first();
+  if(!existente)return c.json({error:'Foto não encontrada neste contexto.'},404);
+  const parsed=editarFotoSchema.safeParse(await c.req.json().catch(()=>null));
+  if(!parsed.success)return c.json({error:'Informe somente uma legenda de até 500 caracteres.'},400);
+  await c.env.DB.prepare('UPDATE obra_fotos SET legenda=? WHERE id=? AND obra_id=?').bind(parsed.data.legenda||null,fotoId,obraId).run();
+  const foto=await c.env.DB.prepare(`${SELECT_FOTO} WHERE f.id=? AND f.obra_id=?`).bind(fotoId,obraId).first();
+  return c.json({foto});
+});
+
 obras.get("/:id/fotos/:fotoId/arquivo", withSession, requireAuth, requireObraAccess, async (c) => {
 	const obraId = Number(c.req.param("id"));
 	const fotoId = Number(c.req.param("fotoId"));
+    const escopo=await escopoRdoFoto(c.env.DB,obraId,c.req.query("rdo_id"));
+    if(!escopo.ok)return c.json({error:escopo.error},escopo.status);
 	if (!Number.isInteger(fotoId) || fotoId <= 0) {
 		return c.json({ error: "id inválido" }, 400);
 	}
@@ -630,9 +666,9 @@ obras.get("/:id/fotos/:fotoId/arquivo", withSession, requireAuth, requireObraAcc
 	// Sempre reconfirma obra_id junto do fotoId — nunca confia só no :fotoId
 	// (defesa em profundidade contra IDOR por troca manual de ID).
 	const foto = await c.env.DB.prepare(
-		"SELECT storage_key, mime_type, nome_arquivo_original FROM obra_fotos WHERE id = ? AND obra_id = ?",
+		`SELECT storage_key, mime_type, nome_arquivo_original FROM obra_fotos WHERE id = ? AND obra_id = ?${escopo.id===null?"":" AND rdo_id = ?"}`,
 	)
-		.bind(fotoId, obraId)
+		.bind(...(escopo.id===null?[fotoId,obraId]:[fotoId,obraId,escopo.id]))
 		.first<{ storage_key: string; mime_type: string | null; nome_arquivo_original: string | null }>();
 	if (!foto) {
 		return c.json({ error: "foto não encontrada" }, 404);
@@ -660,12 +696,14 @@ obras.delete(
 	async (c) => {
 		const obraId = Number(c.req.param("id"));
 		const fotoId = Number(c.req.param("fotoId"));
+    const escopo=await escopoRdoFoto(c.env.DB,obraId,c.req.query("rdo_id"));
+    if(!escopo.ok)return c.json({error:escopo.error},escopo.status);
 		if (!Number.isInteger(fotoId) || fotoId <= 0) {
 			return c.json({ error: "id inválido" }, 400);
 		}
 
-		const foto = await c.env.DB.prepare("SELECT storage_key FROM obra_fotos WHERE id = ? AND obra_id = ?")
-			.bind(fotoId, obraId)
+		const foto = await c.env.DB.prepare(`SELECT storage_key FROM obra_fotos WHERE id = ? AND obra_id = ?${escopo.id===null?"":" AND rdo_id = ?"}`)
+			.bind(...(escopo.id===null?[fotoId,obraId]:[fotoId,obraId,escopo.id]))
 			.first<{ storage_key: string }>();
 		if (!foto) {
 			return c.json({ error: "foto não encontrada" }, 404);

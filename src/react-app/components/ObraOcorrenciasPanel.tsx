@@ -1,3 +1,5 @@
+import AcaoIcone from './AcaoIcone';
+import OcorrenciaEditor from './OcorrenciaEditor';
 import { useCallback, useEffect, useState } from "react";
 import { PRIORIDADE_BADGE, PRIORIDADE_LABEL, formatarData } from "../lib/projeto-tipos";
 import {
@@ -18,6 +20,7 @@ export default function ObraOcorrenciasPanel({ obraId, podeEditar }: { obraId: n
 	const [usuarios, setUsuarios] = useState<UsuarioOpcao[]>([]);
 	const [error, setError] = useState<string | null>(null);
 	const [criando, setCriando] = useState(false);
+    const [editando,setEditando]=useState<number|null>(null);
 	const [titulo, setTitulo] = useState("");
 	const [categoria, setCategoria] = useState("execucao");
 	const [prioridade, setPrioridade] = useState("normal");
@@ -39,11 +42,11 @@ export default function ObraOcorrenciasPanel({ obraId, podeEditar }: { obraId: n
 
 	useEffect(() => {
 		if (!podeEditar) return;
-		fetch("/api/usuarios/opcoes", { credentials: "same-origin" })
-			.then((res) => (res.ok ? (res.json() as Promise<{ usuarios: UsuarioOpcao[] }>) : null))
-			.then((data) => data && setUsuarios(data.usuarios))
+		fetch(`/api/obras/${obraId}`, { credentials: "same-origin" })
+            .then(async r=>{if(!r.ok)throw Error();const d=await r.json();const m=await fetch(`/api/projetos/${d.obra.projeto_id}/membros`,{credentials:'same-origin'});if(!m.ok)throw Error();return m.json();})
+            .then((d:{membros:{usuario_id:number;nome:string}[]})=>setUsuarios(d.membros.map(m=>({id:m.usuario_id,nome:m.nome}))))
 			.catch(() => {});
-	}, [podeEditar]);
+	}, [podeEditar,obraId]);
 
 	async function criar() {
 		if (titulo.trim().length === 0) {
@@ -178,7 +181,7 @@ export default function ObraOcorrenciasPanel({ obraId, podeEditar }: { obraId: n
 										{PRIORIDADE_LABEL[oc.prioridade]}
 									</span>
 								</div>
-								<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_OCORRENCIA_BADGE[oc.status]}`}>
+								{podeEditar&&<AcaoIcone tipo="editar" title="Editar ocorrência" label={`Editar ocorrência ${oc.titulo}`} onClick={()=>setEditando(oc.id)}/>}<span className={`rounded-control px-2 py-0.5 text-xs font-medium ${STATUS_OCORRENCIA_BADGE[oc.status]}`}>
 									{STATUS_OCORRENCIA_LABEL[oc.status]}
 								</span>
 							</div>
@@ -231,6 +234,7 @@ export default function ObraOcorrenciasPanel({ obraId, podeEditar }: { obraId: n
 									</button>
 								</div>
 							)}
+                            {editando===oc.id&&<OcorrenciaEditor obraId={obraId} ocorrencia={oc} usuarios={usuarios} onCancel={()=>setEditando(null)} onSaved={()=>{setEditando(null);carregar();}}/>}
 						</li>
 					))}
 				</ul>

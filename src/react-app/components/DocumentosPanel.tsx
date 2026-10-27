@@ -103,7 +103,7 @@ export default function DocumentosPanel({
 	}
 
 	return (
-		<div className="mt-6 space-y-4"><DocumentosEsperadosChecklist projetoId={projetoId} documentos={(documentos||[]).filter(d=>d.esperado===1)} podeGerenciar={podeExcluir} podeEditar={podeEditar} editar={setEditando} remover={remover} adicionar={()=>setCriandoEsperado(true)} atualizar={carregar}/><h3 className="font-semibold">Documentos registrados</h3>
+		<div className="project-documents mt-5 space-y-4"><DocumentosEsperadosChecklist projetoId={projetoId} documentos={(documentos||[]).filter(d=>d.esperado===1)} podeGerenciar={podeExcluir} podeEditar={podeEditar} editar={setEditando} remover={remover} adicionar={()=>setCriandoEsperado(true)} atualizar={carregar} baixar={baixar} baixandoId={baixandoId}/><h3 className="font-semibold">Documentos registrados</h3>
 			<div className="flex flex-wrap items-center justify-between gap-3">
 				<select
 					value={categoriaFiltro}
@@ -132,7 +132,7 @@ export default function DocumentosPanel({
 
 			{!documentos && !error && <p className="text-sm text-voia-neutral-500">Carregando…</p>}
 
-			{documentos && documentos.length === 0 && (
+			{documentos && documentos.filter(d=>d.esperado!==1).length === 0 && (
 				<p className="text-sm text-voia-neutral-500">Nenhum documento registrado ainda.</p>
 			)}
 

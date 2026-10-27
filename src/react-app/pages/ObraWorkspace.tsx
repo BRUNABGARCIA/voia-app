@@ -200,9 +200,9 @@ export default function ObraWorkspace() {
 				</div>
 			)}
 
-			{aba === "rdo" && <ObraRdoPanel obraId={obra.id} podeEditar={podeEditar} />}
-			{aba === "cronograma" && <CronogramaPanel projetoId={obra.projeto_id} />}
-			{aba === "fotos" && <ObraFotosPanel obraId={obra.id} podeExcluir={podeGerenciar} />}
+			{aba === "rdo" && <ObraRdoPanel obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}
+			{aba === "cronograma" && <CronogramaPanel projetoId={obra.projeto_id} obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} onSaved={carregar} />}
+			{aba === "fotos" && <ObraFotosPanel obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}
 			{aba === "documentos" && <DocumentosPanel projetoId={obra.projeto_id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}
 			{aba === "ocorrencias" && <ObraOcorrenciasPanel obraId={obra.id} podeEditar={podeEditar} />}
 		</div>

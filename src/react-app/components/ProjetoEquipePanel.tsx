@@ -37,7 +37,7 @@ export default function ProjetoEquipePanel({
 				if (!res.ok) throw new Error("não foi possível carregar a equipe");
 				return res.json() as Promise<{ membros: MembroProjeto[] }>;
 			})
-			.then((data) => setMembros(data.membros))
+			.then((data) => setMembros(data.membros||[]))
 			.catch(() => setError("Não foi possível carregar a equipe."));
 	}, [projetoId]);
 
@@ -49,7 +49,7 @@ export default function ProjetoEquipePanel({
 		if (!podeGerenciar) return;
 		fetch("/api/usuarios/opcoes", { credentials: "same-origin" })
 			.then((res) => (res.ok ? (res.json() as Promise<{ usuarios: UsuarioOpcao[] }>) : null))
-			.then((data) => data && setUsuarios(data.usuarios))
+			.then((data) => data && setUsuarios(data.usuarios||[]))
 			.catch(() => {});
 	}, [podeGerenciar]);
 
@@ -58,6 +58,7 @@ export default function ProjetoEquipePanel({
 	}, [gerenteId]);
 
 	async function salvarResponsavel() {
+		if(novoResponsavelId&&!membros?.some(m=>m.usuario_id===Number(novoResponsavelId))){setError('O responsável deve ser membro do projeto.');return;}
 		setError(null);
 		setSalvandoResponsavel(true);
 		try {
@@ -155,7 +156,7 @@ export default function ProjetoEquipePanel({
 							className="rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm text-voia-neutral-900 outline-none focus:border-voia-gold-500"
 						>
 							<option value="">Nenhum</option>
-							{usuarios.map((u) => (
+							{usuarios.filter(u=>membros?.some(m=>m.usuario_id===u.id)).map((u) => (
 								<option key={u.id} value={u.id}>
 									{u.nome}
 								</option>
@@ -264,7 +265,7 @@ export default function ProjetoEquipePanel({
 
 				{membros && membros.length > 0 && (
 					<div className="mt-4 overflow-x-auto">
-						<table className="w-full min-w-[480px] text-left text-sm">
+						<table className="w-full min-w-0 text-left text-sm">
 							<thead>
 								<tr className="border-b border-voia-neutral-100 text-xs uppercase tracking-wide text-voia-neutral-500">
 									<th className="py-2 font-medium">Nome</th>

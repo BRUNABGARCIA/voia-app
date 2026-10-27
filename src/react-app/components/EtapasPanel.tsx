@@ -1,3 +1,4 @@
+import TarefaAcoes from './TarefaAcoes';
 import { mensagemEtapas } from '../../shared/situacao-etapas';
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ProgressoBar from "./ProgressoBar";
@@ -515,22 +516,7 @@ export default function EtapasPanel({
 																			</option>
 																		))}
 																	</select>
-																	<button
-																		type="button"
-																		onClick={() => setEditandoTarefa(tarefa)}
-																		className="text-xs font-medium text-voia-green-800 hover:underline"
-																	>
-																		Editar
-																	</button>
-																	{podeExcluir && (
-																		<details className="text-xs"><summary aria-label={`Ações de ${tarefa.nome}`} className="cursor-pointer">...</summary><button
-																			type="button"
-																			onClick={() => excluirTarefa(tarefa)}
-																			className="text-xs font-medium text-voia-danger hover:underline"
-																		>
-																			Excluir
-																		</button></details>
-																	)}
+																	<TarefaAcoes nome={tarefa.nome} disabled={salvandoTarefaId===tarefa.id} editar={()=>setEditandoTarefa(tarefa)} excluir={podeExcluir?()=>excluirTarefa(tarefa):undefined}/>
 																</div>
 															)}
 														</li>
@@ -549,7 +535,7 @@ export default function EtapasPanel({
       <section className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card)">
         <div className="flex items-center justify-between"><h3 className="font-semibold">Tarefas sem etapa</h3>{podeEditar && <button onClick={() => setCriandoTarefaGeral(true)} className="text-sm text-voia-green-800">+ Nova tarefa sem etapa</button>}</div>
         {tarefas.filter(t => t.etapa_id === null).length === 0 && <p className="mt-3 text-sm text-voia-neutral-500">Nenhuma tarefa sem etapa.</p>}
-        <ul className="mt-3 divide-y divide-neutral-100">{tarefas.filter(t => t.etapa_id === null).map(t => <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{t.nome}</p><p className="mt-1 text-xs text-voia-neutral-500">{STATUS_TAREFA_LABEL[t.status]} · Prazo: {t.prazo ? formatarData(t.prazo) : 'A agendar'} · Responsável: {t.responsavel_nome || 'Não definido'}</p></div>{podeEditar && <div className="flex items-center gap-3"><select aria-label={`Status de ${t.nome}`} value={t.status} disabled={salvandoTarefaId === t.id} onChange={e => alterarStatusTarefa(t, e.target.value)} className="rounded border p-1 text-xs">{STATUS_TAREFA.map(status => <option key={status} value={status}>{STATUS_TAREFA_LABEL[status]}</option>)}</select><details className="text-xs"><summary aria-label={`Ações de ${t.nome}`} className="cursor-pointer">...</summary><button onClick={() => setEditandoTarefa(t)} className="block p-2">Editar</button>{podeExcluir && <button onClick={() => excluirTarefa(t)} className="block p-2 text-voia-danger">Excluir tarefa</button>}</details></div>}</li>)}</ul>
+        <ul className="mt-3 divide-y divide-neutral-100">{tarefas.filter(t => t.etapa_id === null).map(t => <li key={t.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{t.nome}</p><p className="mt-1 text-xs text-voia-neutral-500">{STATUS_TAREFA_LABEL[t.status]} · Prazo: {t.prazo ? formatarData(t.prazo) : 'A agendar'} · Responsável: {t.responsavel_nome || 'Não definido'}</p></div>{podeEditar && <div className="flex items-center gap-3"><select aria-label={`Status de ${t.nome}`} value={t.status} disabled={salvandoTarefaId === t.id} onChange={e => alterarStatusTarefa(t, e.target.value)} className="rounded border p-1 text-xs">{STATUS_TAREFA.map(status => <option key={status} value={status}>{STATUS_TAREFA_LABEL[status]}</option>)}</select><TarefaAcoes nome={t.nome} disabled={salvandoTarefaId===t.id} editar={()=>setEditandoTarefa(t)} excluir={podeExcluir?()=>excluirTarefa(t):undefined}/></div>}</li>)}</ul>
       </section>
       {criandoTarefaGeral && <TarefaModal projetoId={projetoId} etapaId={null} tarefa={null} onClose={() => setCriandoTarefaGeral(false)} onSaved={handleTarefaSaved} />}
 

@@ -119,6 +119,7 @@ export interface Ocorrencia {
 }
 
 export interface Rdo {
+ fotos_total?:number;
 	id: number;
 	obra_id: number;
 	data: string;
@@ -136,6 +137,7 @@ export interface Rdo {
 }
 
 export interface FotoObra {
+ rdo_data?:string|null;
 	id: number;
 	obra_id: number;
 	rdo_id: number | null;

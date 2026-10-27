@@ -42,7 +42,7 @@ describe('gestão dos projetos sem etapa', () => {
     expect(screen.getByText(/Responsável: Bruna/)).toBeTruthy();
   });
 
-  it('só exclui tarefa depois da confirmação e de dentro do menu discreto', async () => {
+  it('só exclui tarefa pelo ícone visível depois da confirmação', async () => {
     let tarefas = [{ id: 1, etapa_id: null, nome: 'Tarefa por engano', prazo: null, status: 'pendente', prioridade: 'normal', responsavel_nome: null }];
     const mock = vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === 'DELETE') { tarefas = []; return resposta({ ok: true }); }
@@ -51,10 +51,9 @@ describe('gestão dos projetos sem etapa', () => {
     vi.stubGlobal('fetch', mock); const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false); const user = userEvent.setup();
     render(<EtapasPanel projetoId={9} podeEditar podeExcluir onProgressoChange={vi.fn()} />);
     await screen.findByText('Tarefa por engano');
-    await user.click(screen.getByLabelText('Ações de Tarefa por engano'));
-    await user.click(screen.getByRole('button', { name: 'Excluir tarefa' }));
+    await user.click(screen.getByRole('button', { name: 'Excluir tarefa Tarefa por engano' }));
     expect(mock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
-    confirm.mockReturnValue(true); await user.click(screen.getByRole('button', { name: 'Excluir tarefa' }));
+    confirm.mockReturnValue(true); await user.click(screen.getByRole('button', { name: 'Excluir tarefa Tarefa por engano' }));
     await waitFor(() => expect(screen.queryByText('Tarefa por engano')).toBeNull());
     expect(mock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
   });
@@ -72,7 +71,7 @@ describe('gestão dos projetos sem etapa', () => {
     const mock = vi.fn(async (_url: string, init?: RequestInit) => resposta(init?.method === 'PATCH' ? { projeto: { ...projeto, status: 'cancelado' } } : { projeto, tiposServico: [], resumoOperacional: { totalEtapas: 0, etapaAtual: null, tarefasAtrasadas: 0, proximoPrazo: null } }));
     vi.stubGlobal('fetch', mock); const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true); const user = userEvent.setup();
     workspace(); await screen.findByText('Projeto Yara');
-    await user.click(screen.getByText('Mais ações...'));
+    await user.click(screen.getByLabelText('Ações do projeto'));
     await user.click(screen.getByRole('button', { name: 'Cancelar cadastro criado por engano' }));
     await waitFor(() => expect(mock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true));
     expect(confirm.mock.calls[0][0]).toContain('nenhum registro será excluído');
@@ -83,6 +82,6 @@ describe('gestão dos projetos sem etapa', () => {
   it('não oferece cancelamento administrativo ao parceiro', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => resposta({ projeto, tiposServico: [], resumoOperacional: { totalEtapas: 0, etapaAtual: null, tarefasAtrasadas: 0, proximoPrazo: null } })));
     workspace('colaborador'); await screen.findByText('Projeto Yara');
-    expect(screen.queryByText('Mais ações...')).toBeNull();
+    await userEvent.setup().click(screen.getByLabelText('Ações do projeto'));expect(screen.queryByRole('button',{name:'Cancelar cadastro criado por engano'})).toBeNull();
   });
 });

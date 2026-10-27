@@ -5,11 +5,12 @@ import { useBranding } from "../contexts/useBranding";
 import { logoDimensoes } from "../lib/logo-escala";
 import { PERFIL_LABEL } from "../lib/perfis";
 
+function iconeSidebar(to:string){const icones:Record<string,string>={'/':'M3 11 12 3l9 8v10h-6v-7H9v7H3Z','/meu-dia':'M4 5h16v16H4zM8 2v6M16 2v6M4 11h16m-12 5 3 3 5-5','/calendario':'M4 5h16v16H4zM8 2v6M16 2v6M4 11h16','/clientes':'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8m8-7a4 4 0 0 1 0 8m5 9v-2a4 4 0 0 0-3-4','/projetos':'M3 6h7l2 3h9v12H3ZM3 6V3h8l2 3h8v3','/obras':'M3 21h18M6 21V9l6-6 6 6v12M9 21v-7h6v7'};return icones[to]||'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z';}
 function SidebarLink({ to, children, onNavigate }: { to: string; children: React.ReactNode; onNavigate: () => void }) {
 	return (
 		<NavLink
 			to={to}
-			end
+			end={to === "/"}
 			onClick={onNavigate}
 			className={({ isActive }) =>
 				`block rounded-control px-3 py-2 text-sm font-medium transition-colors ${
@@ -19,7 +20,7 @@ function SidebarLink({ to, children, onNavigate }: { to: string; children: React
 				}`
 			}
 		>
-			{children}
+			<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-4 w-4 shrink-0"><path strokeLinecap="round" strokeLinejoin="round" d={iconeSidebar(to)}/></svg>{children}
 		</NavLink>
 	);
 }
@@ -39,7 +40,7 @@ export default function AppShell() {
 	const fecharMenu = () => setMenuAberto(false);
 
 	return (
-		<div className="flex min-h-screen bg-(--color-bg)">
+		<div className="voia-shell flex min-h-screen bg-(--color-bg)">
 			{menuAberto && (
 				<button
 					type="button"

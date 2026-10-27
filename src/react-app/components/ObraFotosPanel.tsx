@@ -1,131 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { formatarData } from "../lib/projeto-tipos";
-import type { FotoObra } from "../lib/obra-tipos";
+import AcaoIcone from './AcaoIcone';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatarData } from '../lib/projeto-tipos';
+import type { FotoObra } from '../lib/obra-tipos';
+import ObraFotosSelecao, { type FotoPendente } from './ObraFotosSelecao';
+import { enviarFotoObra } from '../lib/obra-fotos-upload';
 
-export default function ObraFotosPanel({ obraId, podeExcluir }: { obraId: number; podeExcluir: boolean }) {
-	const [fotos, setFotos] = useState<FotoObra[] | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [enviando, setEnviando] = useState(false);
-	const [legenda, setLegenda] = useState("");
-	const inputRef = useRef<HTMLInputElement>(null);
-
-	const carregar = useCallback(() => {
-		fetch(`/api/obras/${obraId}/fotos`, { credentials: "same-origin" })
-			.then((res) => {
-				if (!res.ok) throw new Error();
-				return res.json() as Promise<{ fotos: FotoObra[] }>;
-			})
-			.then((data) => setFotos(data.fotos))
-			.catch(() => setError("Não foi possível carregar as fotos."));
-	}, [obraId]);
-
-	useEffect(() => {
-		carregar();
-	}, [carregar]);
-
-	async function enviar() {
-		const arquivo = inputRef.current?.files?.[0];
-		if (!arquivo) {
-			setError("Selecione uma imagem (JPG ou PNG).");
-			return;
-		}
-		setError(null);
-		setEnviando(true);
-		try {
-			const form = new FormData();
-			form.set("arquivo", arquivo);
-			if (legenda) form.set("legenda", legenda);
-			const res = await fetch(`/api/obras/${obraId}/fotos`, {
-				method: "POST",
-				credentials: "same-origin",
-				body: form,
-			});
-			if (!res.ok) {
-				const body = (await res.json().catch(() => null)) as { error?: string } | null;
-				throw new Error(body?.error ?? "não foi possível enviar a foto");
-			}
-			setLegenda("");
-			if (inputRef.current) inputRef.current.value = "";
-			carregar();
-		} catch (err) {
-			setError(err instanceof Error ? err.message : "não foi possível enviar a foto");
-		} finally {
-			setEnviando(false);
-		}
-	}
-
-	async function excluir(fotoId: number) {
-		try {
-			const res = await fetch(`/api/obras/${obraId}/fotos/${fotoId}`, { method: "DELETE", credentials: "same-origin" });
-			if (!res.ok) throw new Error();
-			carregar();
-		} catch {
-			setError("Não foi possível excluir a foto.");
-		}
-	}
-
-	return (
-		<div className="mt-6 space-y-4">
-			<div className="rounded-card border border-voia-neutral-100 bg-voia-beige-50 p-(--space-card)">
-				<h2 className="font-display text-lg text-voia-green-900">Fotos da obra</h2>
-				<div className="mt-3 flex flex-wrap items-end gap-3">
-					<input
-						ref={inputRef}
-						type="file"
-						accept="image/jpeg,image/png"
-						aria-label="Selecionar foto"
-						className="text-sm text-voia-neutral-700"
-					/>
-					<input
-						type="text"
-						placeholder="Legenda (opcional)"
-						value={legenda}
-						onChange={(e) => setLegenda(e.target.value)}
-						className="min-w-[180px] rounded-control border border-voia-neutral-100 px-3 py-1.5 text-sm text-voia-neutral-900 outline-none focus:border-voia-gold-500"
-					/>
-					<button
-						type="button"
-						onClick={enviar}
-						disabled={enviando}
-						className="rounded-control bg-voia-gold-500 px-3 py-1.5 text-sm font-medium text-voia-green-950 hover:bg-voia-gold-400 disabled:opacity-(--opacity-disabled)"
-					>
-						{enviando ? "Enviando…" : "Enviar foto"}
-					</button>
-				</div>
-				{error && <p className="mt-2 text-sm text-voia-danger">{error}</p>}
-			</div>
-
-			{!fotos && <p className="text-sm text-voia-neutral-500">Carregando…</p>}
-			{fotos && fotos.length === 0 && <p className="text-sm text-voia-neutral-500">Nenhuma foto enviada ainda.</p>}
-
-			{fotos && fotos.length > 0 && (
-				<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-					{fotos.map((foto) => (
-						<div key={foto.id} className="overflow-hidden rounded-card border border-voia-neutral-100 bg-(--color-surface) shadow-card">
-							<a href={`/api/obras/${obraId}/fotos/${foto.id}/arquivo`} target="_blank" rel="noreferrer">
-								<img
-									src={`/api/obras/${obraId}/fotos/${foto.id}/arquivo`}
-									alt={foto.legenda ?? "Foto da obra"}
-									className="h-32 w-full object-cover"
-								/>
-							</a>
-							<div className="p-2">
-								<p className="truncate text-xs font-medium text-voia-neutral-900">{foto.legenda ?? "Sem legenda"}</p>
-								<p className="text-xs text-voia-neutral-500">{formatarData(foto.data)}</p>
-								{podeExcluir && (
-									<button
-										type="button"
-										onClick={() => excluir(foto.id)}
-										className="mt-1 text-xs font-medium text-voia-danger hover:underline"
-									>
-										Excluir
-									</button>
-								)}
-							</div>
-						</div>
-					))}
-				</div>
-			)}
-		</div>
-	);
+export default function ObraFotosPanel({obraId,podeExcluir,podeEditar=true,rdoId,onChanged,permitirUpload=true}:{obraId:number;podeExcluir:boolean;podeEditar?:boolean;rdoId?:number;onChanged?:()=>void;permitirUpload?:boolean}) {
+  const [fotos,setFotos]=useState<FotoObra[]|null>(null),[erro,setErro]=useState(''),[pendentes,setPendentes]=useState<FotoPendente[]>([]),[progresso,setProgresso]=useState(''),[ocupado,setOcupado]=useState(false),[ampliada,setAmpliada]=useState<FotoObra|null>(null);const trava=useRef(false),fecharRef=useRef<HTMLButtonElement>(null),origemRef=useRef<HTMLButtonElement|null>(null);
+  const [editando,setEditando]=useState<number|null>(null),[legendaEdicao,setLegendaEdicao]=useState('');
+  const sufixo=rdoId?`?rdo_id=${rdoId}`:'';
+  const carregar=useCallback(()=>fetch(`/api/obras/${obraId}/fotos${sufixo}`,{credentials:'same-origin'}).then(async r=>{if(!r.ok)throw Error();return r.json();}).then(d=>setFotos(d.fotos)).catch(()=>setErro('Não foi possível carregar as fotos.')),[obraId,sufixo]);
+  useEffect(()=>{void carregar();},[carregar]);
+  useEffect(()=>{if(!ampliada)return;const overflow=document.body.style.overflow;document.body.style.overflow='hidden';fecharRef.current?.focus();function tecla(e:KeyboardEvent){if(e.key==='Escape'){setAmpliada(null);origemRef.current?.focus();}if(e.key==='Tab'){e.preventDefault();fecharRef.current?.focus();}}document.addEventListener('keydown',tecla);return()=>{document.body.style.overflow=overflow;document.removeEventListener('keydown',tecla);};},[ampliada]);
+  async function enviar(){if(trava.current||!pendentes.length||!podeEditar)return;trava.current=true;setOcupado(true);setErro('');try{for(const [i,foto]of pendentes.entries()){setProgresso(`Enviando ${i+1} de ${pendentes.length}…`);await enviarFotoObra(obraId,foto,rdoId);setPendentes(p=>p.filter(f=>f.id!==foto.id));}setProgresso('Fotos enviadas.');}catch(e){setErro(e instanceof Error?e.message:'Não foi possível enviar as fotos.');setProgresso('As fotos já enviadas foram preservadas. Tente novamente para enviar somente as restantes.');}finally{await carregar();onChanged?.();trava.current=false;setOcupado(false);}}
+  async function excluir(foto:FotoObra){if(trava.current||!podeExcluir||!window.confirm('Excluir esta foto? Ela será removida do RDO e da galeria da Obra.'))return;trava.current=true;setOcupado(true);setErro('');try{const r=await fetch(`/api/obras/${obraId}/fotos/${foto.id}${sufixo}`,{method:'DELETE',credentials:'same-origin'});if(!r.ok)throw Error();await carregar();onChanged?.();}catch{setErro('Não foi possível excluir a foto.');}finally{trava.current=false;setOcupado(false);}}
+  async function salvarLegenda(f:FotoObra){if(trava.current||!podeEditar)return;trava.current=true;setOcupado(true);setErro('');try{const r=await fetch(`/api/obras/${obraId}/fotos/${f.id}${sufixo}`,{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({legenda:legendaEdicao.trim()||null})});if(!r.ok){const d=await r.json().catch(()=>null);throw Error(d?.error||'Não foi possível editar a legenda.');}setEditando(null);setProgresso('Legenda atualizada.');await carregar();onChanged?.();}catch(e){setErro(e instanceof Error?e.message:'Falha ao salvar legenda.');}finally{trava.current=false;setOcupado(false);}}
+  const arquivo=(f:FotoObra)=>`/api/obras/${obraId}/fotos/${f.id}/arquivo${sufixo}`;
+  return <section aria-label={rdoId?'Registro fotográfico do RDO':'Galeria da Obra'} className="mt-4 space-y-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">{rdoId?'Registro fotográfico':'Fotos da obra'}</h3>{fotos&&<span className="text-xs text-neutral-500">{fotos.length} {fotos.length===1?'foto':'fotos'}</span>}</div>{podeEditar&&permitirUpload&&<div className="rounded-lg border border-neutral-200 bg-white p-3"><ObraFotosSelecao fotos={pendentes} alterar={setPendentes} disabled={ocupado}/>{!!pendentes.length&&<button type="button" disabled={ocupado} onClick={enviar} className="voia-btn-primary mt-3">{ocupado?'Enviando…':'Enviar fotos'}</button>}</div>}{erro&&<p role="alert" className="text-sm text-red-700">{erro}</p>}{progresso&&<p role="status" className="text-xs text-neutral-500">{progresso}</p>}{!fotos&&!erro&&<p className="text-xs text-neutral-500">Carregando fotos…</p>}{fotos?.length===0&&<p className="text-xs text-neutral-500">Nenhuma foto enviada ainda.</p>}<div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{fotos?.map(f=><article key={f.id} className="min-w-0 overflow-hidden rounded-lg border border-neutral-200 bg-white"><button type="button" className="block w-full" aria-label={`Ampliar ${f.legenda||f.nome_arquivo_original||'foto'}`} onClick={e=>{origemRef.current=e.currentTarget;setAmpliada(f);}}><img loading="lazy" src={arquivo(f)} alt={f.legenda||f.nome_arquivo_original||'Foto da obra'} className="h-32 w-full object-cover"/></button><div className="space-y-1 p-3">{editando===f.id?<div className="space-y-2"><label className="block text-xs">Legenda da foto<input className="mt-1 w-full rounded border border-neutral-200 p-2" maxLength={500} disabled={ocupado} value={legendaEdicao} onChange={e=>setLegendaEdicao(e.target.value)}/></label><div className="flex gap-2"><button type="button" disabled={ocupado} className="voia-text-btn" onClick={()=>void salvarLegenda(f)}>Salvar legenda</button><button type="button" disabled={ocupado} className="voia-text-btn" onClick={()=>setEditando(null)}>Cancelar edição</button></div></div>:<p className="break-words text-xs font-medium">{f.legenda||'Sem legenda'}</p>}<p className="text-xs text-neutral-500">{f.rdo_id?`RDO ${formatarData(f.rdo_data||f.data)}`:formatarData(f.data)}</p><div className="flex items-center gap-1">{podeEditar&&<AcaoIcone tipo="editar" title="Editar foto" label={`Editar foto ${f.legenda||f.nome_arquivo_original||f.id}`} disabled={ocupado} onClick={()=>{setEditando(f.id);setLegendaEdicao(f.legenda||'');}}/>}{podeExcluir&&<AcaoIcone tipo="remover" title="Remover foto" label={`Excluir foto ${f.legenda||f.nome_arquivo_original||f.id}`} disabled={ocupado} onClick={()=>void excluir(f)}/>}</div></div></article>)}</div>{ampliada&&<div role="dialog" aria-modal="true" aria-label="Foto ampliada" className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"><div className="flex max-h-full max-w-5xl flex-col gap-3"><button ref={fecharRef} type="button" className="self-end rounded border border-white/30 px-3 py-2 text-sm text-white" onClick={()=>{setAmpliada(null);origemRef.current?.focus();}}>Fechar foto</button><img src={arquivo(ampliada)} alt={ampliada.legenda||'Foto ampliada'} className="max-h-[75vh] max-w-full object-contain"/><p className="text-sm text-white">{ampliada.legenda}</p></div></div>}</section>;
 }

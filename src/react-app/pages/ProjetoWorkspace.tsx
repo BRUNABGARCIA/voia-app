@@ -8,7 +8,8 @@ import ProjetoModal from "../components/ProjetoModal";
 import ProjetoEquipePanel from "../components/ProjetoEquipePanel";
 import ProjetoFinanceiroPanel from "../components/ProjetoFinanceiroPanel";
 import CronogramaPanel from "../components/CronogramaPanel";
-import EtapasPanel from "../components/EtapasPanel";
+import ProjetoEdicaoInline from "../components/ProjetoEdicaoInline";
+import ProjetoProximosPassos from "../components/ProjetoProximosPassos";
 import AndamentoPanel from "../components/AndamentoPanel";
 import DocumentosPanel from "../components/DocumentosPanel";
 import { localProjeto } from '../lib/local-projeto';
@@ -35,11 +36,9 @@ const PERFIS_QUE_EXCLUEM_ETAPA = ["administrador", "gestor"];
 
 const ABAS = [
 	{ key: "visao-geral", label: "Visão Geral" },
-	{ key: "etapas", label: "Etapas e Tarefas" },
 	{ key: "cronograma", label: "Cronograma" },
 	{ key: "documentos", label: "Documentos" },
 	{ key: "andamento", label: "Andamento" },
-	{ key: "equipe", label: "Equipe" },
 ];
 
 function linha(label: string, valor: string | null | undefined) {
@@ -64,6 +63,8 @@ export default function ProjetoWorkspace() {
 	const [revisao,setRevisao]=useState(0);
 	const [cancelando, setCancelando] = useState(false);
 	const [editando, setEditando] = useState(false);
+	const [inline,setInline]=useState(false),[feedback,setFeedback]=useState('');
+	const [financeiro,setFinanceiro]=useState(false);
 
 	const podeEditar = user ? PERFIS_QUE_EDITAM.includes(user.perfil) : false;
 	const podeGerenciarEquipe = user ? PERFIS_QUE_GERENCIAM_EQUIPE.includes(user.perfil) : false;
@@ -100,9 +101,7 @@ export default function ProjetoWorkspace() {
 	// Etapas é quem manda no progresso — quando a aba Etapas recalcula (criar,
 	// editar, mudar status, excluir etapa), reflete aqui sem precisar recarregar
 	// o projeto inteiro.
-	function handleProgressoChange(progresso: number) {
-		setProjeto((atual) => (atual ? { ...atual, progresso } : atual));
-	}
+
 
 	if (error) {
 		return <p className="text-sm text-voia-danger">{error}</p>;
@@ -126,7 +125,7 @@ export default function ProjetoWorkspace() {
 	const atrasado = projetoAtrasado(projeto);
 
 	return (
-		<div>
+		<div className="projeto-workspace">
 			<button
 				type="button"
 				onClick={() => navigate("/projetos")}
@@ -135,11 +134,11 @@ export default function ProjetoWorkspace() {
 				← Projetos
 			</button>
 
-			<div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div className="project-header mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div>
 					<div className="flex flex-wrap items-center gap-3">
-						<h1 className="font-display text-2xl font-light text-voia-neutral-900 break-words">
-							{projeto.codigo && <span className="text-voia-neutral-500">{projeto.codigo} · </span>}
+						<h1 className="font-display text-2xl font-semibold tracking-tight text-voia-neutral-900 break-words sm:text-3xl">
+							{projeto.codigo && <span className="mb-2 block font-mono text-[11px] font-medium tracking-[0.14em] text-voia-neutral-500">{projeto.codigo}</span>}
 							{projeto.nome}
 						</h1>
 						<span className={`rounded-control px-2 py-1 text-xs font-medium ${STATUS_PROJETO_BADGE[projeto.status]}`}>
@@ -156,41 +155,36 @@ export default function ProjetoWorkspace() {
 						<Link to={`/clientes/${projeto.cliente_id}`} className="font-medium text-voia-green-800 hover:underline">
 							{projeto.cliente_nome}
 						</Link>
-					</p>
+					</p><p className="mt-1 text-xs text-neutral-500">{[local.local,projeto.cidade,projeto.estado].filter(Boolean).join(' · ')}</p>
 				</div>
 				{podeEditar && (
 					<button
 						type="button"
-						onClick={() => setEditando(true)}
+						onClick={() => {setAba("visao-geral");setInline(true);setFeedback('');}}
 						className="rounded-control border border-voia-neutral-100 px-4 py-2 text-sm font-medium text-voia-neutral-700 hover:bg-voia-beige-100"
 					>
-						Editar
+						Editar informações
 					</button>
 				)}
 			</div>
 
       {podeGerenciarEquipe && <AssistenteVoia projetoId={projeto.id} onSaved={()=>{carregar();setRevisao(r=>r+1);}}/>}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="rounded-xl border border-voia-neutral-100 bg-white px-4 py-3"><span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Fase comercial</span><strong className="mt-1 block text-sm text-voia-neutral-900">{projeto.fase_comercial ? FASE_COMERCIAL_LABEL[projeto.fase_comercial] : 'Não informada'}</strong></div>
-        {podeGerenciarEquipe && projeto.status !== 'cancelado' && <details className="text-right text-sm"><summary className="cursor-pointer">Mais ações...</summary><button disabled={cancelando} onClick={cancelarCadastro} className="mt-2 rounded border px-3 py-2 text-voia-danger">Cancelar cadastro criado por engano</button></details>}
+      <div className="project-metrics" aria-label="Resumo executivo">
+        <div><span>Fase comercial</span><strong>{projeto.fase_comercial?FASE_COMERCIAL_LABEL[projeto.fase_comercial]:'Não informada'}</strong></div>
+        {user?.perfil!=='colaborador'&&projeto.valor_contratado!=null&&<div><span>Valor contratado</span><strong>{formatarMoeda(projeto.valor_contratado)}</strong></div>}
+        {resumo?.proximoPrazo&&<div><span>Próximo prazo</span><strong>{formatarData(resumo.proximoPrazo)}</strong></div>}
+        <div><span>Progresso</span><strong>{projeto.progresso}%</strong><div className="mt-2 w-24"><ProgressoBar valor={projeto.progresso}/></div></div>
+        <details className="project-overflow"><summary aria-label="Ações do projeto">⋯</summary><div>{podeEditar&&<button onClick={()=>setEditando(true)}>Edição completa</button>}{podeGerenciarEquipe&&projeto.status!=='cancelado'&&<button disabled={cancelando} onClick={cancelarCadastro} className="text-red-700">Cancelar cadastro criado por engano</button>}</div></details>
       </div>
-      <div className="mt-4"><Tabs abas={ABAS} ativa={aba} onChange={setAba} />
+      <div className="project-tabs mt-4"><Tabs abas={ABAS} ativa={aba} onChange={setAba} />
 			</div>
 
 			{aba === "visao-geral" && (
-				<div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:col-span-2">
-						<div className="flex items-center justify-between">
-							<span className="text-xs font-medium uppercase tracking-wide text-voia-neutral-500">Progresso</span>
-							<span className="text-sm font-medium text-voia-neutral-900">{projeto.progresso}%</span>
-						</div>
-						<div className="mt-2">
-							<ProgressoBar valor={projeto.progresso} />
-						</div>
-					</div>
-
-					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
-						<h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
+				<div className="project-overview mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {feedback&&<p role="status" className="text-sm text-emerald-700 lg:col-span-2">{feedback}</p>}
+          {inline&&podeEditar&&<section className="voia-panel lg:col-span-2"><h2>Informações do projeto</h2><ProjetoEdicaoInline projeto={projeto} comercial={podeGerenciarEquipe} onCancel={()=>setInline(false)} onSaved={()=>{setInline(false);setFeedback('Informações salvas.');carregar();}}/></section>}
+					<div className="project-info rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+						<span className="voia-eyebrow">Informações do projeto</span><h2 className="font-display text-lg text-voia-green-900">Gestão</h2>
 						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							{linha("Responsável", projeto.gerente_nome)}
 							{user?.perfil !== "colaborador" && linha("Valor contratado", formatarMoeda(projeto.valor_contratado))}
@@ -227,7 +221,7 @@ export default function ProjetoWorkspace() {
 					</div>
 
 					{resumo && (
-						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+						<div className="project-summary rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 							<h2 className="font-display text-lg text-voia-green-900">Andamento</h2>
 							<div className="mt-4 space-y-3">
 								<div>
@@ -270,7 +264,7 @@ export default function ProjetoWorkspace() {
 						</div>
 					)}
 
-					<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
+					<div className="project-location rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card">
 						<h2 className="font-display text-lg text-voia-green-900">Local do serviço</h2>
 						<div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
 							{linha("Local/Condomínio", local.local || "Não informado")}
@@ -283,7 +277,7 @@ export default function ProjetoWorkspace() {
 					</div>
 
 					{(projeto.descricao || projeto.observacoes) && (
-						<div className="rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card sm:col-span-2">
+						<div className="project-notes rounded-card border border-voia-neutral-100 bg-(--color-surface) p-(--space-card) shadow-card lg:col-span-2">
 							{projeto.descricao && (
 								<div>
 									<span className="block text-xs font-medium uppercase tracking-wide text-voia-neutral-500">
@@ -302,38 +296,21 @@ export default function ProjetoWorkspace() {
 							)}
 						</div>
 					)}
+          <ProjetoProximosPassos key={revisao} projetoId={projeto.id} abrirCronograma={()=>setAba('cronograma')}/>
+          <section className="project-team lg:col-span-2" aria-label="Equipe do projeto"><div className="project-section-title"><span className="voia-eyebrow">Pessoas e responsabilidades</span><h2>Equipe</h2></div><ProjetoEquipePanel projetoId={projeto.id} gerenteId={projeto.gerente_id} gerenteNome={projeto.gerente_nome} podeGerenciar={podeGerenciarEquipe} onResponsavelAlterado={handleSaved}/></section>
+          {podeGerenciarEquipe&&<details className="voia-panel lg:col-span-2" onToggle={e=>setFinanceiro(e.currentTarget.open)}><summary className="cursor-pointer text-sm font-semibold">Comercial · Remuneração de parceiros</summary>{financeiro&&<ProjetoFinanceiroPanel projetoId={projeto.id}/>}</details>}
+
+
 				</div>
 			)}
 
-			{aba === "etapas" && (
-				<EtapasPanel key={revisao}
-					projetoId={projeto.id}
-					podeEditar={podeEditar}
-					podeExcluir={podeExcluirEtapa}
-					onProgressoChange={handleProgressoChange}
-				/>
-			)}
-
-			{aba === "cronograma" && <CronogramaPanel key={revisao} projetoId={projeto.id} />}
+      {aba === "cronograma" && <CronogramaPanel key={revisao} projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} onSaved={carregar}/>}
 
 			{aba === "documentos" && (
 				<DocumentosPanel key={revisao} projetoId={projeto.id} podeEditar={podeEditar} podeExcluir={podeExcluirEtapa} />
 			)}
 
 			{aba === "andamento" && <AndamentoPanel key={revisao} projetoId={projeto.id} podeEditar={podeEditar} />}
-
-			{aba === "equipe" && (
-				<>
-					<ProjetoEquipePanel
-						projetoId={projeto.id}
-						gerenteId={projeto.gerente_id}
-						gerenteNome={projeto.gerente_nome}
-						podeGerenciar={podeGerenciarEquipe}
-						onResponsavelAlterado={handleSaved}
-					/>
-					{podeGerenciarEquipe && <ProjetoFinanceiroPanel projetoId={projeto.id} />}
-				</>
-			)}
 
 			{editando && (
 				<ProjetoModal

@@ -68,21 +68,19 @@ export default function TarefaModal({
 			.then((data) => data && setUsuarios(data.usuarios))
 			.catch(() => {});
 
-		// Membros do projeto (e o responsável principal) aparecem primeiro na
-		// lista de responsáveis — são quem realmente trabalha neste projeto.
+		// Somente membros do projeto podem ser escolhidos como responsáveis.
 		fetch(`/api/projetos/${projetoId}`, { credentials: "same-origin" })
 			.then((res) => (res.ok ? (res.json() as Promise<ProjetoResumo>) : null))
 			.then((data) => {
 				if (!data) return;
 				const ids = new Set(data.membros.map((m) => m.usuario_id));
-				if (data.projeto.gerente_id) ids.add(data.projeto.gerente_id);
 				setIdsPrioritarios(ids);
 			})
 			.catch(() => {});
 	}, [projetoId]);
 
 	const usuariosPrioritarios = usuarios.filter((u) => idsPrioritarios.has(u.id));
-	const outrosUsuarios = usuarios.filter((u) => !idsPrioritarios.has(u.id));
+	const outrosUsuarios: UsuarioOpcao[] = [];
 
 	function set<K extends keyof FormState>(campo: K) {
 		return (valor: FormState[K]) => setForm((atual) => ({ ...atual, [campo]: valor }));
@@ -97,6 +95,7 @@ export default function TarefaModal({
 			return;
 		}
 
+		if(form.responsavel_id&&!idsPrioritarios.has(Number(form.responsavel_id))){setError("O responsável deve ser membro do projeto.");return;}
 		setSubmitting(true);
 		try {
 			const payload = {
