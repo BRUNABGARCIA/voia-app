@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useAuth } from "../contexts/useAuth";
 import Tabs from "../components/Tabs";
@@ -13,6 +13,7 @@ import { STATUS_OBRA, STATUS_OBRA_BADGE, STATUS_OBRA_LABEL, type Obra } from "..
 
 const PERFIS_QUE_GERENCIAM = ["administrador", "gestor"];
 const PERFIS_QUE_EDITAM = ["administrador", "gestor", "colaborador"];
+const ObraPlanilhasPanel = lazy(() => import('../components/ObraPlanilhasPanel'));
 
 const ABAS = [
 	{ key: "resumo", label: "Resumo" },
@@ -104,7 +105,7 @@ export default function ObraWorkspace() {
 			</div>
 
 			<div className="mt-6">
-				<Tabs abas={ABAS} ativa={aba} onChange={setAba} />
+				<Tabs abas={podeGerenciar ? [...ABAS, { key: 'planilhas', label: 'Planilhas' }] : ABAS} ativa={aba} onChange={setAba} />
 			</div>
 
 			{aba === "resumo" && (
@@ -201,6 +202,7 @@ export default function ObraWorkspace() {
 			)}
 
 			{aba === "rdo" && <ObraRdoPanel obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}
+			{aba === "planilhas" && podeGerenciar && <Suspense fallback={<p className="mt-6 text-sm">Carregando planilhas…</p>}><ObraPlanilhasPanel obraId={obra.id} podeBiblioteca={user?.perfil === 'administrador'} /></Suspense>}
 			{aba === "cronograma" && <CronogramaPanel projetoId={obra.projeto_id} obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} onSaved={carregar} />}
 			{aba === "fotos" && <ObraFotosPanel obraId={obra.id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}
 			{aba === "documentos" && <DocumentosPanel projetoId={obra.projeto_id} podeEditar={podeEditar} podeExcluir={podeGerenciar} />}

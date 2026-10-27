@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
+import { lazy, Suspense } from 'react';
 import { AuthProvider } from "./contexts/AuthContext";
 import { BrandingProvider } from "./contexts/BrandingContext";
 import { PortalAuthProvider } from "./contexts/PortalAuthContext";
@@ -24,6 +25,7 @@ import ObraWorkspace from "./pages/ObraWorkspace";
 import PortalLayout from "./portal/PortalLayout";
 import MeusProcessos from "./portal/MeusProcessos";
 import PortalProcesso from "./portal/PortalProcesso";
+const BasesServicos=lazy(()=>import('./pages/BasesServicos'));
 
 function App() {
 	return (
@@ -47,6 +49,7 @@ function App() {
 								<Route path="calendario" element={<Calendario />} />
 								<Route path="obras" element={<Obras />} />
 								<Route path="obras/:id" element={<ObraWorkspace />} />
+								<Route path="configuracoes/bases-servicos" element={<Suspense fallback={<p>Carregando bases…</p>}><BasesServicos/></Suspense>} />
 
 								<Route element={<RequireAdmin />}>
 									<Route path="configuracoes/equipe" element={<EquipeAcessos />} />

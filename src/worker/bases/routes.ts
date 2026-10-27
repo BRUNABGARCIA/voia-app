@@ -1,0 +1,74 @@
+import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
+import { z } from 'zod';
+import { withSession, requireAuth, requireRole, type AuthEnv } from '../auth/middleware';
+import { baseSchema, baseItemSchema, buscaItem, chaveItem, type BaseItem } from '../../shared/bases-servicos';
+import { normalizarBusca } from '../../shared/planilhas';
+import { SELECT_CATALOGO } from './catalogo';
+
+const routes=new Hono<AuthEnv>();
+routes.use('*',withSession,requireAuth,requireRole('administrador','gestor'),bodyLimit({maxSize:1_000_000,onError:c=>c.json({error:'Lote excede 1 MB.'},413)}));
+routes.onError((e,c)=>{console.error('Bases de serviços',e);return c.json({error:'Operação não concluída. Nenhum lote foi publicado parcialmente.'},409);});
+const admin=requireRole('administrador');
+function textoSqlSemAcento(coluna:string){let sql=`lower(${coluna})`;for(const [letras,base] of [['áàâãäÁÀÂÃÄ','a'],['éèêëÉÈÊË','e'],['íìîïÍÌÎÏ','i'],['óòôõöÓÒÔÕÖ','o'],['úùûüÚÙÛÜ','u'],['çÇ','c']])for(const letra of letras)sql=`replace(${sql},'${letra}','${base}')`;return sql;}
+const hash=async(v:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)))).map(b=>b.toString(16).padStart(2,'0')).join('');
+async function preparar(itens:BaseItem[]){return Promise.all(itens.map(async i=>({...i,busca:buscaItem(i),assinatura:await hash(JSON.stringify(i)),chave:chaveItem(i)})));}
+const loteSchema=z.object({itens:z.array(baseItemSchema).min(1).max(500)}).strict();
+async function comparar(db:D1Database,base:number,itens:BaseItem[]){
+ const p=await preparar(itens);const {results}=await db.prepare('SELECT codigo,tipo,classificacao,assinatura FROM base_itens WHERE base_id=? AND codigo IN(SELECT json_extract(value,\'$.codigo\') FROM json_each(?))').bind(base,JSON.stringify(p)).all<{codigo:string;tipo:string;classificacao:string;assinatura:string}>();
+ const mapa=new Map(results.map(i=>[chaveItem(i),i.assinatura]));const vistos=new Set<string>();
+ const estados=p.map(i=>{if(vistos.has(i.chave))return 'invalido';vistos.add(i.chave);const a=mapa.get(i.chave);return a===undefined?'novo':a===i.assinatura?'existente':'alterado';});
+ return {estados,novos:estados.filter(s=>s==='novo').length,existentes:estados.filter(s=>s==='existente').length,alterados:estados.filter(s=>s==='alterado').length,invalidos:estados.filter(s=>s==='invalido').length};
+}
+routes.get('/busca',async c=>{
+ const q=normalizarBusca((c.req.query('q')??'').slice(0,150)),termos=q.split(/\s+/).filter(Boolean).slice(0,8),where:string[]=[],params:(string|number)[]=[];
+ for(const t of termos){where.push('instr(busca,?)>0');params.push(t);}
+ const filtros:Record<string,string>={fonte:'tipo_base',grupo:'grupo',unidade:'unidade',competencia:'competencia',uf:'uf',base_id:'base_id'};
+ for(const [param,col] of Object.entries(filtros)){const v=c.req.query(param);if(v){if(param==='fonte'&&v==='OUTRAS'){where.push("tipo_base IN('IMPORTADA','OUTRA')");}else{where.push(`${col}=?`);params.push(v);}}}
+ if(c.req.query('categoria')){where.push(`instr(${textoSqlSemAcento('categoria')},?)>0`);params.push(normalizarBusca(c.req.query('categoria')!));}
+ const pagina=Math.max(0,Math.min(10000,Number(c.req.query('pagina'))||0)),limite=30,etapa=c.req.query('priorizar_grupo')??'';
+ const {results}=await c.env.DB.prepare(`SELECT * FROM (${SELECT_CATALOGO}) ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY CASE WHEN grupo=? AND ?<>'' THEN 0 ELSE 1 END,fonte,codigo,id LIMIT ? OFFSET ?`).bind(...params,etapa,etapa,limite+1,pagina*limite).all();
+ return c.json({resultados:results.slice(0,limite).map(({busca:_,...r})=>{void _;return r;}),mais:results.length>limite,pagina});
+});
+routes.get('/bases',async c=>{const {results}=await c.env.DB.prepare('SELECT b.*,(SELECT COUNT(*) FROM base_itens WHERE base_id=b.id) AS itens_total FROM bases_referencia b ORDER BY b.id DESC').all();return c.json({bases:results});});
+routes.post('/bases',admin,async c=>{const p=baseSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Metadados da base inválidos.'},400);const v=p.data;const base=await c.env.DB.prepare('INSERT INTO bases_referencia(nome,tipo,descricao,origem,competencia,uf,data_referencia,versao,regime,observacoes,criada_por) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING *').bind(v.nome,v.tipo,v.descricao,v.origem,v.competencia,v.uf,v.data_referencia,v.versao,v.regime,v.observacoes,c.get('user')!.id).first();return c.json({base},201);});
+routes.patch('/bases/:base',admin,async c=>{const p=z.object({ativa:z.boolean()}).strict().safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Informe apenas ativa/inativa. Uma nova competência ou preço exige nova versão da base.'},400);const r=await c.env.DB.prepare('UPDATE bases_referencia SET ativa=?,atualizada_em=CURRENT_TIMESTAMP WHERE id=?').bind(Number(p.data.ativa),Number(c.req.param('base'))).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Base não encontrada.'},404);});
+routes.get('/bases/:base/itens',async c=>{const id=Number(c.req.param('base'));if(!await c.env.DB.prepare('SELECT id FROM bases_referencia WHERE id=?').bind(id).first())return c.json({error:'Base não encontrada.'},404);const pagina=Math.max(0,Number(c.req.query('pagina'))||0);const {results}=await c.env.DB.prepare('SELECT * FROM base_itens WHERE base_id=? ORDER BY codigo,id LIMIT 51 OFFSET ?').bind(id,pagina*50).all();return c.json({itens:results.slice(0,50),mais:results.length>50});});
+routes.post('/bases/:base/previa',admin,async c=>{const id=Number(c.req.param('base'));if(!await c.env.DB.prepare('SELECT id FROM bases_referencia WHERE id=? AND ativa=1').bind(id).first())return c.json({error:'Base ativa não encontrada.'},404);const p=loteSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Lote inválido.'},400);return c.json(await comparar(c.env.DB,id,p.data.itens));});
+const inicioSchema=z.object({arquivo_nome:z.string().min(1).max(200),arquivo_hash:z.string().regex(/^[a-f0-9]{64}$/),total:z.number().int().min(1).max(50000),lotes:z.number().int().min(1).max(1000)}).strict();
+routes.post('/bases/:base/importacoes',admin,async c=>{
+ const base=Number(c.req.param('base')),p=inicioSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Importação inválida.'},400);
+ if(!await c.env.DB.prepare('SELECT id FROM bases_referencia WHERE id=? AND ativa=1').bind(base).first())return c.json({error:'Base ativa não encontrada.'},404);
+ const antigo=await c.env.DB.prepare("SELECT * FROM bases_importacoes WHERE base_id=? AND arquivo_hash=? AND status<>'cancelada'").bind(base,p.data.arquivo_hash).first<{id:string;status:string;criada_por:number;total:number;lotes:number}>();
+ if(antigo){if(antigo.status==='concluida')return c.json({importacao:antigo,repetida:true});if(antigo.status!=='preparando'||antigo.criada_por!==c.get('user')!.id||antigo.total!==p.data.total||antigo.lotes!==p.data.lotes)return c.json({error:'Importação já registrada com outra situação. Use novo arquivo ou nova versão.'},409);return c.json({importacao:antigo});}
+ const id=crypto.randomUUID(),v=p.data;await c.env.DB.prepare("INSERT INTO bases_importacoes(id,base_id,arquivo_nome,arquivo_hash,total,lotes,status,criada_por) VALUES(?,?,?,?,?,?,'preparando',?)").bind(id,base,v.arquivo_nome,v.arquivo_hash,v.total,v.lotes,c.get('user')!.id).run();return c.json({importacao:{id,status:'preparando'}},201);
+});
+async function sessao(db:D1Database,base:number,id:string,user:number){return db.prepare("SELECT s.* FROM bases_importacoes s JOIN bases_referencia b ON b.id=s.base_id WHERE s.id=? AND s.base_id=? AND s.criada_por=? AND s.status='preparando' AND b.ativa=1").bind(id,base,user).first<{id:string;lotes:number;total:number}>();}
+routes.put('/bases/:base/importacoes/:importacao/lotes/:seq',admin,async c=>{
+ const base=Number(c.req.param('base')),id=c.req.param('importacao'),s=await sessao(c.env.DB,base,id,c.get('user')!.id),seq=Number(c.req.param('seq'));
+ if(!s)return c.json({error:'Importação ativa não encontrada.'},404);if(!Number.isInteger(seq)||seq<0||seq>=s.lotes)return c.json({error:'Sequência inválida.'},400);
+ const p=loteSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Lote inválido.'},400);const itens=await preparar(p.data.itens),dados=JSON.stringify(itens),sha=await hash(dados);
+ const antigo=await c.env.DB.prepare('SELECT hash FROM bases_importacao_lotes WHERE importacao_id=? AND sequencia=?').bind(id,seq).first<{hash:string}>();if(antigo)return antigo.hash===sha?c.json({ok:true,repetido:true}):c.json({error:'Lote já recebido com outro conteúdo.'},409);
+ const recebido=await c.env.DB.prepare("INSERT INTO bases_importacao_lotes(importacao_id,sequencia,hash,dados,quantidade) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND base_id=? AND criada_por=? AND status='preparando')").bind(id,seq,sha,dados,itens.length,id,base,c.get('user')!.id).run();return recebido.meta.changes?c.json({ok:true}):c.json({error:'A situação da importação mudou; lote não recebido.'},409);
+});
+routes.post('/bases/:base/importacoes/:importacao/concluir',admin,async c=>{
+ const base=Number(c.req.param('base')),id=c.req.param('importacao'),s=await sessao(c.env.DB,base,id,c.get('user')!.id);if(!s)return c.json({error:'Importação ativa não encontrada.'},404);
+ const token=crypto.randomUUID();
+ const linhas=`SELECT j.value AS item FROM bases_importacao_lotes l,json_each(l.dados) j WHERE l.importacao_id=?`;
+ const claim=c.env.DB.prepare(`UPDATE bases_importacoes SET status='concluida',token=?,concluida_em=CURRENT_TIMESTAMP WHERE id=? AND base_id=? AND criada_por=? AND status='preparando'
+ AND EXISTS(SELECT 1 FROM bases_referencia WHERE id=? AND ativa=1)
+ AND (SELECT COUNT(*) FROM bases_importacao_lotes WHERE importacao_id=?)=lotes
+ AND (SELECT COALESCE(SUM(quantidade),0) FROM bases_importacao_lotes WHERE importacao_id=?)=total
+ AND (SELECT COUNT(DISTINCT json_extract(item,'$.chave')) FROM (${linhas}))=total
+ AND NOT EXISTS(SELECT 1 FROM (${linhas}) x JOIN base_itens b ON b.base_id=? AND b.codigo=json_extract(x.item,'$.codigo') AND b.tipo=json_extract(x.item,'$.tipo') AND b.classificacao=json_extract(x.item,'$.classificacao') WHERE b.assinatura<>json_extract(x.item,'$.assinatura'))`).bind(token,id,base,c.get('user')!.id,base,id,id,id,id,base);
+ const insert=c.env.DB.prepare(`INSERT INTO base_itens(base_id,importacao_id,codigo,descricao,unidade,preco_centavos,tipo,classificacao,grupo,categoria,subcategoria,tags,observacoes,busca,assinatura)
+ SELECT ?,?,json_extract(item,'$.codigo'),json_extract(item,'$.descricao'),json_extract(item,'$.unidade'),json_extract(item,'$.preco_centavos'),json_extract(item,'$.tipo'),json_extract(item,'$.classificacao'),json_extract(item,'$.grupo'),json_extract(item,'$.categoria'),json_extract(item,'$.subcategoria'),json_extract(item,'$.tags'),json_extract(item,'$.observacoes'),json_extract(item,'$.busca'),json_extract(item,'$.assinatura') FROM (${linhas})
+ WHERE EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND token=?) AND NOT EXISTS(SELECT 1 FROM base_itens b WHERE b.base_id=? AND b.codigo=json_extract(item,'$.codigo') AND b.tipo=json_extract(item,'$.tipo') AND b.classificacao=json_extract(item,'$.classificacao'))`).bind(base,id,id,id,token,base);
+ const res=await c.env.DB.batch([claim,insert]);if(!res[0].meta.changes)return c.json({error:'Lotes incompletos, códigos repetidos ou itens alterados. Para alterar referências existentes, crie uma nova versão da base.'},409);return c.json({ok:true,novos:res[1].meta.changes,existentes:s.total-res[1].meta.changes});
+});
+routes.post('/bases/:base/importacoes/:importacao/cancelar',admin,async c=>{const r=await c.env.DB.prepare("UPDATE bases_importacoes SET status='cancelada' WHERE id=? AND base_id=? AND criada_por=? AND status='preparando'").bind(c.req.param('importacao'),Number(c.req.param('base')),c.get('user')!.id).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Importação não encontrada.'},404);});
+routes.get('/biblioteca',async c=>{const {results}=await c.env.DB.prepare('SELECT * FROM voia_biblioteca_servicos ORDER BY grupo,nome').all();return c.json({servicos:results});});
+const bibliotecaSchema=z.object({nome:z.string().trim().min(1).max(300),grupo:z.string().regex(/^\d{2}$/),categoria:z.string().max(150),subcategoria:z.string().max(150),unidade:z.string().max(30),descricao:z.string().max(5000),escopo:z.string().max(8000),tags:z.string().max(500),observacoes:z.string().max(8000),ativo:z.boolean()}).strict();
+routes.post('/biblioteca',admin,async c=>{const p=bibliotecaSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Serviço inválido.'},400);const v=p.data,codigo="VOIA-"+crypto.randomUUID();const r=await c.env.DB.prepare("INSERT INTO voia_biblioteca_servicos(codigo,nome,grupo,categoria,subcategoria,unidade,descricao,escopo,tags,observacoes,origem,criada_por,ativo,busca_normalizada,atualizada_em) VALUES(?,?,?,?,?,?,?,?,?,?,'Cadastro explícito VOIA',?,?,?,CURRENT_TIMESTAMP) RETURNING id").bind(codigo,v.nome,v.grupo,v.categoria,v.subcategoria,v.unidade,v.descricao,v.escopo,v.tags,v.observacoes,c.get('user')!.id,Number(v.ativo),normalizarBusca([codigo,v.nome,v.descricao,v.escopo,v.categoria,v.subcategoria,v.tags].join(' '))).first();return c.json({servico:r},201);});
+routes.put('/biblioteca/:item',admin,async c=>{const p=bibliotecaSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Serviço inválido.'},400);const v=p.data,r=await c.env.DB.prepare('UPDATE voia_biblioteca_servicos SET nome=?,grupo=?,categoria=?,subcategoria=?,unidade=?,descricao=?,escopo=?,tags=?,observacoes=?,ativo=?,busca_normalizada=lower(codigo)||char(32)||?,atualizada_em=CURRENT_TIMESTAMP WHERE id=?').bind(v.nome,v.grupo,v.categoria,v.subcategoria,v.unidade,v.descricao,v.escopo,v.tags,v.observacoes,Number(v.ativo),normalizarBusca([v.nome,v.descricao,v.escopo,v.categoria,v.subcategoria,v.tags].join(' ')),Number(c.req.param('item'))).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Serviço não encontrado.'},404);});
+export default routes;

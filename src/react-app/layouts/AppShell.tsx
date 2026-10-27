@@ -100,13 +100,14 @@ export default function AppShell() {
 							<SidebarLink to="/configuracoes/tipos-servico" onNavigate={fecharMenu}>
 								Tipos de Serviço
 							</SidebarLink>
+							<SidebarLink to="/configuracoes/bases-servicos" onNavigate={fecharMenu}>Bases de Serviços</SidebarLink>
 							<SidebarLink to="/configuracoes/aparencia" onNavigate={fecharMenu}>
 								Aparência
 							</SidebarLink>
 						</nav>
 					</div>
 				)}
-			</aside>
+			{user?.perfil==="gestor"&&<div className="mt-5"><span className="text-xs uppercase text-neutral-400">Configurações</span><SidebarLink to="/configuracoes/bases-servicos" onNavigate={fecharMenu}>Bases de Serviços</SidebarLink></div>}</aside>
 
 			<div className="flex min-w-0 flex-1 flex-col">
 				<header className="flex h-14 items-center justify-between border-b border-voia-neutral-100 bg-(--color-surface) px-4 sm:px-6">
