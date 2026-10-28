@@ -29,15 +29,15 @@ export async function lerXlsxBase(bytes:Uint8Array):Promise<AbaImportacao[]>{
    }abas.push({nome:sheet.getAttribute('name')??path!,linhas});await new Promise(r=>setTimeout(r,0));
  }if(!abas.length)throw Error('Nenhuma aba tabular encontrada.');return abas;
 }
-export const CAMPOS_IMPORTACAO=['codigo','descricao','unidade','preco','tipo','classificacao','grupo','categoria','subcategoria','tags','observacoes'] as const;
-export type Mapeamento=Record<typeof CAMPOS_IMPORTACAO[number],number>;
-export function mapearBase(aba:AbaImportacao,cabecalho:number,map:Mapeamento,formato:'br'|'decimal',tipoPadrao:BaseItem['tipo']){
+export const CAMPOS_IMPORTACAO=['codigo','descricao','unidade','preco','preco_nao_desonerado','preco_desonerado','tipo','classificacao','grupo','categoria','subcategoria','tags','observacoes'] as const;
+export type Mapeamento=Record<Exclude<typeof CAMPOS_IMPORTACAO[number],'preco_nao_desonerado'|'preco_desonerado'>,number>&Partial<Record<'preco_nao_desonerado'|'preco_desonerado',number>>;
+export function mapearBase(aba:AbaImportacao,cabecalho:number,map:Mapeamento,formato:'br'|'decimal',tipoPadrao:BaseItem['tipo'],sinapi=false){
  const itens:BaseItem[]=[],invalidos:{linha:number;erro:string}[]=[],vistos=new Set<string>();
  aba.linhas.slice(cabecalho+1).forEach((row,n)=>{if(!row.some(c=>String(c.valor).trim()))return;try{
-   const ler=(campo:typeof CAMPOS_IMPORTACAO[number])=>{const c=row[map[campo]];if(c?.formula)throw Error('Campo mapeado contém fórmula; forneça valores conferidos.');return c?.valor??'';};
+   const ler=(campo:typeof CAMPOS_IMPORTACAO[number])=>{const c=row[map[campo]??-1];if(c?.formula)throw Error('Campo mapeado contém fórmula; forneça valores conferidos.');return c?.valor??'';};
    const texto=(c:typeof CAMPOS_IMPORTACAO[number])=>String(ler(c)).trim();
    const tipo=texto('tipo').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')||tipoPadrao;
-   const i=baseItemSchema.parse({codigo:texto('codigo'),descricao:texto('descricao'),unidade:texto('unidade'),preco_centavos:precoImportado(ler('preco'),formato),tipo,classificacao:texto('classificacao'),grupo:texto('grupo'),categoria:texto('categoria'),subcategoria:texto('subcategoria'),tags:texto('tags'),observacoes:texto('observacoes')});
+   const i=baseItemSchema.parse({codigo:texto('codigo'),descricao:texto('descricao'),unidade:texto('unidade'),preco_centavos:sinapi?null:precoImportado(ler('preco'),formato),...(sinapi||(map.preco_nao_desonerado??-1)>=0||(map.preco_desonerado??-1)>=0?{preco_nao_desonerado_centavos:precoImportado(ler('preco_nao_desonerado'),formato)||null,preco_desonerado_centavos:precoImportado(ler('preco_desonerado'),formato)||null}:{}),tipo,classificacao:texto('classificacao'),grupo:texto('grupo'),categoria:texto('categoria'),subcategoria:texto('subcategoria'),tags:texto('tags'),observacoes:texto('observacoes')});
    if(Object.values(i).some(v=>typeof v==='string'&&/\u00c3[\u0080-\u00bf]|\u00c2[\u0080-\u00bf]|\u00e2[\u20ac\u2020]|\uFFFD/.test(v)))throw Error('Texto com possível mojibake; revise a fonte.');
    const key=chaveItem(i);if(vistos.has(key))throw Error('Identidade repetida no arquivo (código + tipo + classificação).');vistos.add(key);itens.push(i);
  }catch(e){invalidos.push({linha:cabecalho+n+2,erro:e instanceof Error?e.message:'Linha inválida'});}});

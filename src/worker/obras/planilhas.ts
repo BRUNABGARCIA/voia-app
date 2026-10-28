@@ -5,7 +5,7 @@ import { withSession, requireAuth, requireRole, type AuthEnv } from '../auth/mid
 import { requireObraAccess } from './acesso';
 import { normalizarBusca, referenciaOrigemSchema, planilhaConteudoSchema, type ConteudoPlanilha, type ItemPlanilha, type Planilha } from '../../shared/planilhas';
 import { referenciaCatalogo } from '../bases/catalogo';
-import { itemDoCatalogo } from '../../shared/bases-servicos';
+import { itemDoCatalogo,referenciaTecnica,regimeValido } from '../../shared/bases-servicos';
 
 const routes=new Hono<AuthEnv>();
 routes.use('/biblioteca-planilhas',withSession,requireAuth,requireRole('administrador','gestor'));
@@ -43,19 +43,20 @@ async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number){
   const cacheReferencias=new Map<string,Awaited<ReturnType<typeof referenciaCatalogo>>>();
   for(const i of p.itens){
     const anterior=antigos.find(a=>a.id===i.id);const historico=anterior?JSON.parse(anterior.dados) as ItemPlanilha:null;
-    if(historico){if(JSON.stringify(historico.referencia_origem?referenciaOrigemSchema.parse(historico.referencia_origem):null)!==JSON.stringify(i.referencia_origem??null)||historico.biblioteca_id!==i.biblioteca_id)throw Error('Referência original do item é imutável.');continue;}
+    if(i.referencia_origem&&!regimeValido(i.referencia_origem))throw Error('Preço selecionado incompatível com o regime.');
+    if(historico){if(JSON.stringify(historico.referencia_origem?referenciaTecnica(referenciaOrigemSchema.parse(historico.referencia_origem)):null)!==JSON.stringify(i.referencia_origem?referenciaTecnica(i.referencia_origem):null)||historico.biblioteca_id!==i.biblioteca_id)throw Error('Referência original do item é imutável.');continue;}
     const ref=i.referencia_origem;
     if(ref||i.biblioteca_id!==null){
       const fonte=ref?.fonte??'biblioteca',sourceId=ref?.item_id??i.biblioteca_id!,key=fonte+sourceId;
       if(!cacheReferencias.has(key))cacheReferencias.set(key,await referenciaCatalogo(c.env.DB,fonte,sourceId));const original=cacheReferencias.get(key);
       if((fonte==='biblioteca'?sourceId:null)!==i.biblioteca_id)throw Error('Referência incompatível com o item.');
       const snapshot=original?itemDoCatalogo(original,i.grupo).referencia_origem!:null;
-      if(ref&&(!snapshot||JSON.stringify(ref)!==JSON.stringify(snapshot))){
+      if(ref&&(!snapshot||JSON.stringify(referenciaTecnica(ref))!==JSON.stringify(referenciaTecnica(snapshot)))){
         // Duplicating a real historical worksheet must retain its old reference, including inactive editions.
-        const historica=await c.env.DB.prepare("SELECT id FROM obra_planilha_itens WHERE json_extract(dados,'$.referencia_origem')=? LIMIT 1").bind(JSON.stringify(ref)).first();
+        const historica=await c.env.DB.prepare("SELECT id FROM obra_planilha_itens WHERE json_remove(json_extract(dados,'$.referencia_origem'),'$.regime_escolhido','$.preco_referencia_centavos')=? LIMIT 1").bind(JSON.stringify(referenciaTecnica(ref))).first();
         if(!historica)throw Error('A referência mudou ou foi alterada. Pesquise e selecione novamente.');continue;
       }
-      if(!snapshot)throw Error('Referência ativa não encontrada.');i.referencia_origem=snapshot;
+      if(!snapshot)throw Error('Referência ativa não encontrada.');i.referencia_origem=ref?{...snapshot,...(ref.regime_escolhido!==undefined?{regime_escolhido:ref.regime_escolhido,preco_referencia_centavos:ref.preco_referencia_centavos}: {})}:snapshot;
     }
   }
   // Reserve explicitly imported codes before allocating blanks; never renumber existing identities.
