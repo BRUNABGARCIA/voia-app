@@ -1,0 +1,25 @@
+import {env} from 'cloudflare:workers';
+import {beforeAll,expect,it} from 'vitest';
+import app from '../src/worker/index';
+import {criarUsuario} from './helpers/fixtures';
+import {extrairCookie,jsonRequest} from './helpers/http';
+import {SESSION_COOKIE_NAME} from '../src/worker/auth/session';
+import {baseItemSchema,itemDoCatalogo,regimeValido,referenciaTecnica,type ResultadoCatalogo} from '../src/shared/bases-servicos';
+import {chaveCustoSicro,centavosSicro} from '../src/shared/sicro';
+let cookie:string,gestor:string,parceiro:string,base:number;
+const req=(p:string,m='GET',b?:unknown,c=cookie)=>app.request('/api/catalogo-servicos'+p,jsonRequest(m,b,c),env);
+const custo=(tipo:string,valor:string|null)=>({tipo,rotulo:tipo,valor,unidade:'h',edicao:'publicada',selecionavel:true,arquivo:'fixture.xlsx',sha256:'a'.repeat(64),aba:'Sheet1',linhas:[2],coluna:'J'});
+const item=(codigo='E9001')=>baseItemSchema.parse({codigo,descricao:'Equipamento escavação fixture local',unidade:'h',tipo:'insumo',classificacao:'equipamento',preco_centavos:null,sicro:{subtipo:'equipamento',custos:[custo('produtivo','19.4563'),custo('improdutivo','0')],memorias:[]}});
+const metadata={nome:'SICRO fixture',tipo:'SICRO',origem:'fixture isolada',competencia:'07/2026',uf:'MT',versao:'fixture',regime:''};
+beforeAll(async()=>{for(const [perfil,role] of [['admin','administrador'],['gestor','gestor'],['parceiro','colaborador']] as const){await criarUsuario(`sicro-${perfil}@voia.local`,role);const r=await app.request('/api/auth/login',jsonRequest('POST',{email:`sicro-${perfil}@voia.local`,senha:'senha-padrao-teste'}),env);const c=extrairCookie(r,SESSION_COOKIE_NAME)!;if(perfil==='admin')cookie=c;else if(perfil==='gestor')gestor=c;else parceiro=c;}const r=await req('/bases','POST',metadata);expect(r.status).toBe(201);base=(await r.json<{base:{id:number}}>()).base.id;});
+async function importar(itens=[item()],tag='a'){
+ const r=await req(`/bases/${base}/importacoes`,'POST',{arquivo_nome:'fixture.xlsx',arquivo_hash:tag.repeat(64),total:itens.length,lotes:1});const s=await r.json<{importacao:{id:string};repetida?:boolean}>();if(s.repetida)return {repetida:true};const url=`/bases/${base}/importacoes/${s.importacao.id}`;expect((await req(url+'/lotes/0','PUT',{itens})).status).toBe(200);return (await req(url+'/concluir','POST')).json();
+}
+it('publica custos tipados com precisão original atomicamente e busca por subtipo',async()=>{expect(await importar()).toMatchObject({novos:1});const r=await req('/busca?fonte=SICRO&subtipo=equipamento&uf=MT&competencia=07%2F2026');const rows=(await r.json<{resultados:ResultadoCatalogo[]}>()).resultados;expect(rows).toHaveLength(1);expect(rows[0].sicro?.custos.map(c=>c.valor)).toEqual(['19.4563','0']);expect(rows[0].preco_centavos).toBeNull();});
+it('reimportação não duplica custos nem contexto',async()=>{expect(await importar(undefined,'b')).toMatchObject({novos:0,existentes:1});expect(await importar(undefined,'a')).toMatchObject({repetida:true});expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM base_item_custos').first()).toEqual({n:2});});
+it('rejeita referência duplicada mesmo com outro nome',async()=>{expect((await req('/bases','POST',{...metadata,nome:'Outro nome'})).status).toBe(409);});
+it('valida no servidor tipo de custo, unidade e identidade repetida',async()=>{for(const patch of [{custos:[custo('valor_aquisicao','100')]},{custos:[custo('produtivo','1'),custo('produtivo','2')]},{custos:[{...custo('produtivo','1'),unidade:'un'}]}]){const i=item('E9002');expect((await req(`/bases/${base}/previa`,'POST',{itens:[{...i,sicro:{...i.sicro,...patch}}]})).status).toBe(400);}});
+it('custos imutáveis e FK preservados',async()=>{await expect(env.DB.prepare("UPDATE base_item_custos SET valor_decimal='99'").run()).rejects.toThrow();expect((await env.DB.prepare('PRAGMA foreign_key_check').all()).results).toEqual([]);});
+it('permissões existentes são preservadas',async()=>{expect((await req('/busca?fonte=SICRO','GET',undefined,gestor)).status).toBe(200);expect((await req('/bases','POST',metadata,gestor)).status).toBe(403);expect((await req('/busca','GET',undefined,parceiro)).status).toBe(403);expect((await req('/busca','GET',undefined,'')).status).toBe(401);});
+it('snapshot não escolhe equipamento e seleção não muda preço adotado',async()=>{const r=(await (await req('/busca?fonte=SICRO')).json<{resultados:ResultadoCatalogo[]}>()).resultados[0];const i=itemDoCatalogo(r,'02');expect(i.referencia_origem?.custo_sicro_escolhido).toBeNull();const adopted={...i,valor_unit_centavos:9999},ref={...i.referencia_origem!,custo_sicro_escolhido:chaveCustoSicro(r.sicro!.custos[0])};expect(regimeValido(ref)).toBe(true);expect(regimeValido({...ref,custo_sicro_escolhido:'inventado'})).toBe(false);expect(referenciaTecnica(ref)).toEqual(referenciaTecnica(i.referencia_origem!));expect({...adopted,referencia_origem:ref}.valor_unit_centavos).toBe(9999);});
+it('NULL e zero distintos; adoção explícita usa arredondamento decimal exato',()=>{expect(centavosSicro(null)).toBeNull();expect(centavosSicro('0')).toBe(0);expect(centavosSicro('19.4563')).toBe(1946);expect(centavosSicro('1.005')).toBe(101);});

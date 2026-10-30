@@ -53,10 +53,10 @@ async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number){
       const snapshot=original?itemDoCatalogo(original,i.grupo).referencia_origem!:null;
       if(ref&&(!snapshot||JSON.stringify(referenciaTecnica(ref))!==JSON.stringify(referenciaTecnica(snapshot)))){
         // Duplicating a real historical worksheet must retain its old reference, including inactive editions.
-        const historica=await c.env.DB.prepare("SELECT id FROM obra_planilha_itens WHERE json_remove(json_extract(dados,'$.referencia_origem'),'$.regime_escolhido','$.preco_referencia_centavos')=? LIMIT 1").bind(JSON.stringify(referenciaTecnica(ref))).first();
+        const historica=await c.env.DB.prepare("SELECT id FROM obra_planilha_itens WHERE json_remove(json_extract(dados,'$.referencia_origem'),'$.regime_escolhido','$.preco_referencia_centavos','$.custo_sicro_escolhido')=? LIMIT 1").bind(JSON.stringify(referenciaTecnica(ref))).first();
         if(!historica)throw Error('A referência mudou ou foi alterada. Pesquise e selecione novamente.');continue;
       }
-      if(!snapshot)throw Error('Referência ativa não encontrada.');i.referencia_origem=ref?{...snapshot,...(ref.regime_escolhido!==undefined?{regime_escolhido:ref.regime_escolhido,preco_referencia_centavos:ref.preco_referencia_centavos}: {})}:snapshot;
+      if(!snapshot)throw Error('Referência ativa não encontrada.');i.referencia_origem=ref?{...snapshot,...(ref.custo_sicro_escolhido!==undefined?{custo_sicro_escolhido:ref.custo_sicro_escolhido}:{}),...(ref.regime_escolhido!==undefined?{regime_escolhido:ref.regime_escolhido,preco_referencia_centavos:ref.preco_referencia_centavos}: {})}:snapshot;
     }
   }
   // Reserve explicitly imported codes before allocating blanks; never renumber existing identities.

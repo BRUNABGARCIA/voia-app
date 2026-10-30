@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { referenciaSicroSchema } from './sicro';
 
 export const STATUS_LEVANTAMENTO = {
   FECHADO: 'Fechado', QPE: 'Quantificado — pendente de especificação',
@@ -11,7 +12,7 @@ export const ETAPAS_REFORMA = [
   ['09','Marcenaria'],['10','Acabamentos'],['11','Limpeza'],['12','Climatização'],
 ] as const;
 const texto = (n = 2000) => z.string().max(n);
-export const referenciaOrigemSchema=z.object({fonte:z.enum(['biblioteca','base']),base_id:z.number().int().positive().nullable(),item_id:z.number().int().positive(),codigo:texto(100),descricao:texto(5000),unidade:texto(30),competencia:texto(30),uf:texto(50),versao:texto(100),origem:texto(1000),preco_centavos:z.number().int().min(0).max(1e11).nullable(),tipo:texto(30),classificacao:texto(200),base_nome:texto(200).optional(),regime:texto(100).optional(),data_referencia:texto(30).optional(),preco_nao_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional(),preco_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional(),regime_escolhido:z.enum(['nao_desonerado','desonerado']).nullable().optional(),preco_referencia_centavos:z.number().int().min(0).max(1e11).nullable().optional(),metadados:texto(12000).optional(),tipo_base:z.enum(['VOIA','SINAPI','SICRO','PROPRIA','IMPORTADA','OUTRA']).optional()}).strict();
+export const referenciaOrigemSchema=z.object({sicro:referenciaSicroSchema.optional(),custo_sicro_escolhido:z.string().max(250).nullable().optional(),fonte:z.enum(['biblioteca','base']),base_id:z.number().int().positive().nullable(),item_id:z.number().int().positive(),codigo:texto(100),descricao:texto(5000),unidade:texto(30),competencia:texto(30),uf:texto(50),versao:texto(100),origem:texto(1000),preco_centavos:z.number().int().min(0).max(1e11).nullable(),tipo:texto(30),classificacao:texto(200),base_nome:texto(200).optional(),regime:texto(100).optional(),data_referencia:texto(30).optional(),preco_nao_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional(),preco_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional(),regime_escolhido:z.enum(['nao_desonerado','desonerado']).nullable().optional(),preco_referencia_centavos:z.number().int().min(0).max(1e11).nullable().optional(),metadados:texto(12000).optional(),tipo_base:z.enum(['VOIA','SINAPI','SICRO','PROPRIA','IMPORTADA','OUTRA']).optional()}).strict();
 export const grupoSchema = z.object({ codigo: z.string().regex(/^\d{2}$/), nome: texto(150).min(1) }).strict();
 export const itemPlanilhaSchema = z.object({
   id: z.string().uuid(), codigo: z.string().regex(/^\d{2}\.\d{2,6}$/).or(z.literal('')), grupo: z.string().regex(/^\d{2}$/),

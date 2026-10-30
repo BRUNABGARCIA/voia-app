@@ -1,4 +1,10 @@
 import type { ResultadoCatalogo } from '../../shared/bases-servicos';
+import { referenciaSicroSchema } from '../../shared/sicro';
 export const SELECT_CATALOGO=`SELECT 'biblioteca' AS fonte,s.id,NULL AS base_id,'Biblioteca VOIA' AS base_nome,'VOIA' AS tipo_base,s.codigo,s.nome AS descricao,s.unidade,s.grupo,s.categoria,s.subcategoria,s.tags,s.escopo,s.observacoes,'' AS competencia,'' AS uf,'' AS versao,s.origem,NULL AS preco_centavos,'servico' AS tipo,'' AS classificacao,s.busca_normalizada AS busca,'' AS regime,'' AS data_referencia,NULL AS preco_nao_desonerado_centavos,NULL AS preco_desonerado_centavos,NULL AS metadados FROM voia_biblioteca_servicos s WHERE s.ativo=1
 UNION ALL SELECT 'base',i.id,b.id,b.nome,b.tipo,i.codigo,i.descricao,i.unidade,i.grupo,i.categoria,i.subcategoria,i.tags,'',i.observacoes,b.competencia,b.uf,b.versao,b.origem,i.preco_centavos,i.tipo,i.classificacao,i.busca,b.regime,b.data_referencia,i.preco_nao_desonerado_centavos,i.preco_desonerado_centavos,i.metadados FROM base_itens i JOIN bases_referencia b ON b.id=i.base_id WHERE b.ativa=1`;
-export async function referenciaCatalogo(db:D1Database,fonte:string,id:number){return db.prepare(`SELECT * FROM (${SELECT_CATALOGO}) WHERE fonte=? AND id=?`).bind(fonte,id).first<ResultadoCatalogo>();}
+export async function anexarCustosSicro(db:D1Database,rows:ResultadoCatalogo[]){
+ const ids=rows.filter(r=>r.tipo_base==='SICRO').map(r=>r.id);if(!ids.length)return rows;
+ const {results}=await db.prepare(`SELECT s.item_id,s.subtipo,c.dados FROM base_item_sicro s JOIN base_item_custos c ON c.item_id=s.item_id WHERE s.item_id IN(SELECT value FROM json_each(?)) ORDER BY c.id`).bind(JSON.stringify(ids)).all<{item_id:number;subtipo:string;dados:string}>();
+ return rows.map(r=>{if(r.tipo_base!=='SICRO')return r;const custos=results.filter(c=>c.item_id===r.id);return custos.length?{...r,sicro:referenciaSicroSchema.parse({subtipo:custos[0].subtipo,custos:custos.map(c=>JSON.parse(c.dados))})}:r;});
+}
+export async function referenciaCatalogo(db:D1Database,fonte:string,id:number){const r=await db.prepare(`SELECT * FROM (${SELECT_CATALOGO}) WHERE fonte=? AND id=?`).bind(fonte,id).first<ResultadoCatalogo>();return r?(await anexarCustosSicro(db,[r]))[0]:null;}
