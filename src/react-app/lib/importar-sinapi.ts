@@ -27,10 +27,21 @@ export async function importarSinapi(bytes:Uint8Array,estrutura:EstruturaSinapi,
  const sd=p.get('xl/sharedStrings.xml'),strings=sd?Array.from(documento(sd).getElementsByTagNameNS('*','si'),s=>Array.from(s.getElementsByTagNameNS('*','t'),t=>t.textContent??'').join('')):[];
  const itens=new Map<string,BaseItem>(),invalidos:{linha:number;erro:string}[]=[];
  for(const nome of selecionadas){const raw=p.get(estrutura.paths[nome]);if(!raw)throw Error(`Aba ${nome} ausente.`);if(/<!DOCTYPE|<!ENTITY|\uFFFD/.test(raw))throw Error('XML SINAPI inválido.');let coluna=-1,cabecalho=false,referencia=false,regime=false,linhas=0;const vistos=new Set<string>();let ultimaUf:Record<string,Valor>={};
-  // Parse one row at a time and discard other UFs before DOM allocation.
+  // Parse one row at a time. Cell addresses are authoritative; neither omitted
+  // cells nor self-closing cells can consume/shift the following UF's value.
   for(const match of raw.matchAll(/<row\b[^>]*>[\s\S]*?<\/row>/g)){if(++linhas>50050)throw Error('Aba excede 50 mil registros.');const r=match[0],numero=Number(r.match(/\br="(\d+)"/)?.[1]??linhas);
-   const cells:Record<string,Valor>={};const fragmentos=Array.from(r.matchAll(/<c\b[^>]*(?:\/>|>[\s\S]*?<\/c>)/g),m=>m[0]).filter(c=>{const col=c.match(/\br="([A-Z]+)\d+"/)?.[1]??'';if(!col||col.length>2)throw Error('Endereço inválido.');if(!cabecalho)return true;return ['A','B','C','D','E',letraColuna(coluna),letraColuna(coluna+1)].includes(col);});
-   const d=documento(`<row xmlns="${NS}">${fragmentos.join('')}</row>`);for(const c of Array.from(d.getElementsByTagNameNS('*','c'))){const col=c.getAttribute('r')?.match(/^[A-Z]+/)?.[0];if(!col)continue;const t=c.getAttribute('t'),v=c.getElementsByTagNameNS('*','v')[0]?.textContent??'',formula=c.getElementsByTagNameNS('*','f')[0]?.textContent??null;if(t==='e')throw Error('Célula com erro na fonte.');const valor=t==='s'?strings[Number(v)]??'':t==='inlineStr'?Array.from(c.getElementsByTagNameNS('*','t'),t=>t.textContent??'').join(''):v!==''&&(!t||t==='n')?Number(v):v;cells[col]={valor,formula};}
+   const cells:Record<string,Valor>={},enderecos=new Set<string>();
+   const d=documento(`<worksheet xmlns="${NS}">${r}</worksheet>`);
+   for(const c of Array.from(d.getElementsByTagNameNS('*','c'))){
+    const address=c.getAttribute('r')??'',match=address.match(/^([A-Z]{1,2})([1-9]\d*)$/);
+    if(!match||Number(match[2])!==numero||indiceColuna(match[1])>=64||enderecos.has(address))throw Error('Endereço de célula inválido ou repetido.');enderecos.add(address);const col=match[1];
+    if(cabecalho&&!['A','B','C','D','E',letraColuna(coluna),letraColuna(coluna+1)].includes(col))continue;
+    const t=c.getAttribute('t'),v=c.getElementsByTagNameNS('*','v')[0]?.textContent??'',formula=c.getElementsByTagNameNS('*','f')[0]?.textContent??null;
+    if(t==='e')throw Error('Célula com erro na fonte.');
+    if(t==='s'&&(!/^\d+$/.test(v)||strings[Number(v)]===undefined))throw Error('Índice de string compartilhada inválido.');
+    if(v!==''&&(!t||t==='n')&&!Number.isFinite(Number(v)))throw Error('Valor numérico inválido.');
+    const valor=t==='s'?strings[Number(v)]:t==='inlineStr'?Array.from(c.getElementsByTagNameNS('*','t'),t=>t.textContent??'').join(''):v!==''&&(!t||t==='n')?Number(v):v;cells[col]={valor,formula};
+   }
    const vals=Object.values(cells).map(c=>String(c.valor)),titulo=normalizarBusca(vals.join(' '));
    if(!cabecalho){if(vals.includes(competencia))referencia=true;if(titulo.includes('relatorio')&&(entidade==='composicao'?titulo.includes('composico'):titulo.includes('insumos'))&&(nome.endsWith('SD')?titulo.includes('sem desoneracao'):titulo.includes('com desoneracao')))regime=true;
     if(Object.values(cells).some(c=>normalizarBusca(String(c.valor)).replace(/\s+/g,' ').includes(entidade==='composicao'?'codigo da composicao':'codigo do insumo'))){const ufrow=entidade==='insumo'?cells:ultimaUf;const col=Object.entries(ufrow).filter(([,v])=>v.valor===uf);if(col.length!==1)throw Error(`UF ${uf} ausente ou ambígua em ${nome}.`);coluna=indiceColuna(col[0][0]);cabecalho=true;if(!referencia||!regime)throw Error(`Competência ou regime de ${nome} não confere com a base.`);}else if(vals.includes(uf)){ultimaUf=cells;}continue;

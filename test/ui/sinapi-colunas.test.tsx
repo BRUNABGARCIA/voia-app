@@ -1,0 +1,21 @@
+import {expect,it} from 'vitest';
+import {zipSync,strToU8} from 'fflate';
+import {detectarSinapi,importarSinapi} from '../../src/react-app/lib/importar-sinapi';
+import {precoImportado} from '../../src/shared/bases-servicos';
+const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const cell=(r:string,v:string|number)=>typeof v==='number'?`<c r="${r}"><v>${v}</v></c>`:`<c r="${r}" t="inlineStr"><is><t>${v}</t></is></c>`;
+function workbook(tipo:'insumo'|'composicao',anterior:'vazia'|'omitida',valor:number|null=31367.59,shared=false){
+ const nomes=tipo==='insumo'?['ISD','ICD']:['CSD','CCD'];const files:Record<string,Uint8Array>={};
+ files['xl/workbook.xml']=strToU8(`<workbook xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${nomes.map((n,i)=>`<sheet name="${n}" r:id="r${i}"/>`).join('')}</sheets></workbook>`);
+ files['xl/_rels/workbook.xml.rels']=strToU8(`<Relationships>${nomes.map((_,i)=>`<Relationship Id="r${i}" Target="worksheets/sheet${i+1}.xml"/>`).join('')}</Relationships>`);
+ if(shared)files['xl/sharedStrings.xml']=strToU8(`<sst xmlns="${ns}"><si><t>39577</t></si><si><t>AR-CONDICIONADO FRIO SPLITAO MODULAR 10 TR</t></si><si><t>UN</t></si></sst>`);
+ nomes.forEach((_,i)=>{const origem=tipo==='insumo'?'INSUMOS':'COMPOSIÇÕES';const row=`<row r="265">${cell('A265','Grupo')}${shared?'<c r="B265" t="s"><v>0</v></c><c r="C265" t="s"><v>1</v></c><c r="D265" t="s"><v>2</v></c>':cell('B265',39577)+cell('C265','AR-CONDICIONADO FRIO SPLITAO MODULAR 10 TR')+cell('D265','UN')}${cell('E265','CR')}${anterior==='vazia'?'<c r="Q265" s="19"/>':''}${valor===null?'<c r="R265" s="19"/>':cell('R265',valor)}${cell('S265',999.99)}</row>`;
+ const header=`<row r="2">${cell('A2',`RELATÓRIO DE ${origem} COM ENCARGOS SOCIAIS ${i===0?'SEM':'COM'} DESONERAÇÃO`)}</row><row r="3">${cell('B3','09/2026')}</row><row r="4">${cell('R4','MT')}</row><row r="10">${cell('B10',tipo==='insumo'?'Código do Insumo':'Código da Composição')}${cell('C10','Descrição')}${cell('D10','Unidade')}${cell('R10',tipo==='insumo'?'MT':'Custo (R$)')}</row>`;
+ files[`xl/worksheets/sheet${i+1}.xml`]=strToU8(`<worksheet xmlns="${ns}"><sheetData>${header}${row}</sheetData></worksheet>`);
+ });return zipSync(files);
+}
+it.each(['insumo','composicao'] as const)('célula vazia anterior a MT não elimina preço em ambos regimes: %s',async tipo=>{const b=workbook(tipo,'vazia');const r=await importarSinapi(b,(await detectarSinapi(b))!,'MT','09/2026',tipo);expect(r.invalidos).toEqual([]);expect(r.itens[0]).toMatchObject({codigo:'39577',unidade:'UN',preco_nao_desonerado_centavos:3136759,preco_desonerado_centavos:3136759});});
+it.each(['insumo','composicao'] as const)('células omitidas não deslocam a coluna MT: %s',async tipo=>{const b=workbook(tipo,'omitida');const r=await importarSinapi(b,(await detectarSinapi(b))!,'MT','09/2026',tipo);expect(r.invalidos).toEqual([]);expect(r.itens[0].preco_nao_desonerado_centavos).toBe(3136759);expect(r.itens[0].preco_desonerado_centavos).toBe(3136759);});
+it('strings compartilhadas são resolvidas por referência, incluindo código 39577',async()=>{const b=workbook('insumo','vazia',31367.59,true),r=await importarSinapi(b,(await detectarSinapi(b))!,'MT','09/2026','insumo');expect(r.invalidos).toEqual([]);expect(r.itens[0]).toMatchObject({codigo:'39577',descricao:'AR-CONDICIONADO FRIO SPLITAO MODULAR 10 TR',unidade:'UN',preco_nao_desonerado_centavos:3136759,preco_desonerado_centavos:3136759});});
+it('MT realmente ausente permanece NULL mesmo com preço na coluna seguinte',async()=>{const b=workbook('insumo','vazia',null),r=await importarSinapi(b,(await detectarSinapi(b))!,'MT','09/2026','insumo');expect(r.itens[0]).toMatchObject({preco_nao_desonerado_centavos:null,preco_desonerado_centavos:null,metadados:{ISD_preco_original:'',ICD_preco_original:''}});});
+it('zero numérico mantém origem distinta de célula ausente; SINAPI zerado segue legenda oficial',async()=>{const b=workbook('insumo','omitida',0),r=await importarSinapi(b,(await detectarSinapi(b))!,'MT','09/2026','insumo');expect(r.itens[0]).toMatchObject({preco_nao_desonerado_centavos:null,preco_desonerado_centavos:null,metadados:{ISD_preco_original:0,ICD_preco_original:0}});expect(precoImportado(0,'br')).toBe(0);expect(precoImportado('','br')).toBeNull();});

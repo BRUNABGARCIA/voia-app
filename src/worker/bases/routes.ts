@@ -25,7 +25,7 @@ async function comparar(db:D1Database,base:number,itens:BaseItem[]){
 routes.get('/busca',async c=>{
  const q=normalizarBusca((c.req.query('q')??'').slice(0,150)),termos=q.split(/\s+/).filter(Boolean).slice(0,8),where:string[]=[],params:(string|number)[]=[];
  for(const t of termos){where.push('instr(busca,?)>0');params.push(t);}
- const filtros:Record<string,string>={fonte:'tipo_base',grupo:'grupo',unidade:'unidade',competencia:'competencia',uf:'uf',base_id:'base_id'};
+ const filtros:Record<string,string>={fonte:'tipo_base',grupo:'grupo',unidade:'unidade',competencia:'competencia',uf:'uf',base_id:'base_id',tipo:'tipo'};
  for(const [param,col] of Object.entries(filtros)){const v=c.req.query(param);if(v){if(param==='fonte'&&v==='OUTRAS'){where.push("tipo_base IN('IMPORTADA','OUTRA')");}else{where.push(param==='competencia'||param==='uf'?`(fonte='biblioteca' OR ${col}=?)`:`${col}=?`);params.push(v);}}}
  if(c.req.query('categoria')){where.push(`instr(${textoSqlSemAcento('categoria')},?)>0`);params.push(normalizarBusca(c.req.query('categoria')!));}
  const pagina=Math.max(0,Math.min(10000,Math.floor(Number(c.req.query('pagina'))||0))),limite=30,etapa=c.req.query('priorizar_grupo')??'';
@@ -62,7 +62,7 @@ routes.post('/bases/:base/importacoes/:importacao/concluir',admin,async c=>{
  AND (SELECT COUNT(*) FROM bases_importacao_lotes WHERE importacao_id=?)=lotes
  AND (SELECT COALESCE(SUM(quantidade),0) FROM bases_importacao_lotes WHERE importacao_id=?)=total
  AND (SELECT COUNT(DISTINCT json_extract(item,'$.chave')) FROM (${linhas}))=total
- AND NOT EXISTS(SELECT 1 FROM (${linhas}) x JOIN base_itens b ON b.base_id=? AND b.codigo=json_extract(x.item,'$.codigo') AND b.tipo=json_extract(x.item,'$.tipo') AND b.classificacao=json_extract(x.item,'$.classificacao') WHERE b.assinatura<>json_extract(x.item,'$.assinatura'))`).bind(token,id,base,c.get('user')!.id,base,id,id,id,id,base);
+ AND NOT EXISTS(SELECT 1 FROM (${linhas}) x CROSS JOIN base_itens b ON b.base_id=? AND b.codigo=json_extract(x.item,'$.codigo') AND b.tipo=json_extract(x.item,'$.tipo') AND b.classificacao=json_extract(x.item,'$.classificacao') WHERE b.assinatura<>json_extract(x.item,'$.assinatura'))`).bind(token,id,base,c.get('user')!.id,base,id,id,id,id,base);
  const insert=c.env.DB.prepare(`INSERT INTO base_itens(base_id,importacao_id,codigo,descricao,unidade,preco_centavos,tipo,classificacao,grupo,categoria,subcategoria,tags,observacoes,busca,assinatura,preco_nao_desonerado_centavos,preco_desonerado_centavos,metadados)
  SELECT ?,?,json_extract(item,'$.codigo'),json_extract(item,'$.descricao'),json_extract(item,'$.unidade'),json_extract(item,'$.preco_centavos'),json_extract(item,'$.tipo'),json_extract(item,'$.classificacao'),json_extract(item,'$.grupo'),json_extract(item,'$.categoria'),json_extract(item,'$.subcategoria'),json_extract(item,'$.tags'),json_extract(item,'$.observacoes'),json_extract(item,'$.busca'),json_extract(item,'$.assinatura'),json_extract(item,'$.preco_nao_desonerado_centavos'),json_extract(item,'$.preco_desonerado_centavos'),json_extract(item,'$.metadados') FROM (${linhas})
  WHERE EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND token=?) AND NOT EXISTS(SELECT 1 FROM base_itens b WHERE b.base_id=? AND b.codigo=json_extract(item,'$.codigo') AND b.tipo=json_extract(item,'$.tipo') AND b.classificacao=json_extract(item,'$.classificacao'))`).bind(base,id,id,id,token,base);

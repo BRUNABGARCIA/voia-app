@@ -52,7 +52,20 @@ describe('Rodada 3: migration aditiva e fluxo operacional',()=>{
     expect(documentos.results).toEqual([{esperado:1,estado_documental:'pendente_emissao',storage_key:null},{esperado:1,estado_documental:'aguardando_etapa',storage_key:null}]);
     expect(await env.DB.prepare('SELECT id FROM obras WHERE projeto_id=?').bind(id).first()).toBeNull();
     const agenda=await app.request('/api/calendario?inicio=2026-10-01&fim=2026-11-30',{headers:{cookie:c.cookie}},env);
-    expect(agenda.status).toBe(200);expect(await agenda.text()).toContain('Vistoria inicial');
+    expect(agenda.status).toBe(200);
+    // The operational calendar uses SQLite's clock, not inicio/fim query params.
+    // Keep the historical Yara fixture intact, even when its date ages out.
+    const janela=await env.DB.prepare("SELECT date('now','-14 days') AS inicio,date('now','+60 days') AS fim").first<{inicio:string;fim:string}>();
+    const eventos=(await agenda.json<{eventos:{titulo:string;projetoId:number}[]}>()).eventos;
+    expect(eventos.some(e=>e.projetoId===id&&e.titulo==='Vistoria inicial')).toBe(janela!.inicio<='2026-10-15'&&janela!.fim>='2026-10-15');
+  });
+
+  it('calendário inclui limite de 14 dias e exclui dia anterior, usando a data do banco',async()=>{
+    const c=await contexto('calendario-janela');
+    await env.DB.prepare("INSERT INTO projeto_tarefas(projeto_id,nome,responsavel_id,prazo,status) VALUES(?,'No limite local',?,date('now','-14 days'),'pendente'),(?,'Fora do limite local',?,date('now','-15 days'),'pendente')").bind(c.projeto,c.admin,c.projeto,c.admin).run();
+    const agenda=await app.request('/api/calendario',{headers:{cookie:c.cookie}},env);
+    expect(agenda.status).toBe(200);const eventos=(await agenda.json<{eventos:{titulo:string}[]}>()).eventos;
+    expect(eventos.some(e=>e.titulo==='No limite local')).toBe(true);expect(eventos.some(e=>e.titulo==='Fora do limite local')).toBe(false);
   });
 
   it('proposta aguardando aceite não inicia o projeto nem as etapas',async()=>{
