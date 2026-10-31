@@ -1,3 +1,4 @@
+import {buscarCatalogo} from '../bases/routes';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -28,7 +29,7 @@ async function ler(c:Context<AuthEnv>,id:number):Promise<Planilha|null>{
   ]);
   return {...p,somente_mao_de_obra:p.somente_mao_de_obra===null?null:!!p.somente_mao_de_obra,grupos:g.results,itens:i.results.map(i=>JSON.parse(i.dados) as ItemPlanilha)};
 }
-async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number,trocasSbc=new Set<string>()){
+async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number,trocasSbc=new Set<string>(),trocas=new Set<string>()){
   const antigos=id?(await c.env.DB.prepare('SELECT id,codigo,dados FROM obra_planilha_itens WHERE planilha_id=?').bind(id).all<{id:string;codigo:string;dados:string}>()).results:[];
   const mapa=new Map(antigos.map(i=>[i.id,i.codigo])),ocupados=new Set(antigos.map(i=>i.codigo));
   const proximos:Record<string,number>={};
@@ -44,8 +45,9 @@ async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number,trocasS
   for(const i of p.itens){
     const anterior=antigos.find(a=>a.id===i.id);const historico=anterior?JSON.parse(anterior.dados) as ItemPlanilha:null;
     if(i.referencia_origem&&!regimeValido(i.referencia_origem))throw Error('Preço selecionado incompatível com o regime.');
-    const trocar=historico&&trocasSbc.has(i.id);
-    if(trocar&&(historico.referencia_origem?.tipo_base!=='SBC'||i.referencia_origem?.tipo_base!=='SBC'))throw Error('Reseleção explícita exige referências SBC.');
+    const trocar=historico&&(trocasSbc.has(i.id)||trocas.has(i.id));
+    if(trocar&&!i.referencia_origem)throw Error('Selecione uma referência ativa para efetuar a troca.');
+    if(historico&&trocasSbc.has(i.id)&&(historico.referencia_origem?.tipo_base!=='SBC'||i.referencia_origem?.tipo_base!=='SBC'))throw Error('Reseleção explícita exige referências SBC.');
     if(historico&&!trocar){if(JSON.stringify(historico.referencia_origem?referenciaTecnica(referenciaOrigemSchema.parse(historico.referencia_origem)):null)!==JSON.stringify(i.referencia_origem?referenciaTecnica(i.referencia_origem):null)||historico.biblioteca_id!==i.biblioteca_id)throw Error('Referência original do item é imutável.');continue;}
     const ref=i.referencia_origem;
     if(ref||i.biblioteca_id!==null){
@@ -90,6 +92,7 @@ routes.post('/biblioteca-planilhas',requireRole('administrador'),async c=>{
   const v=p.data,codigo="VOIA-"+crypto.randomUUID();const row=await c.env.DB.prepare(`INSERT INTO voia_biblioteca_servicos(codigo,nome,grupo,categoria,subcategoria,unidade,descricao,escopo,tags,observacoes,origem,criada_por,busca_normalizada) VALUES(?,?,?,?,?,?,?,?,?,?,'Cadastro explícito VOIA',?,?) RETURNING *`).bind(codigo,v.nome,v.grupo,v.categoria,v.subcategoria,v.unidade,v.descricao,v.escopo,v.tags,v.observacoes,c.get('user')!.id,normalizarBusca([codigo,v.nome,v.descricao,v.escopo,v.categoria,v.subcategoria,v.tags].join(' '))).first();return c.json({servico:row},201);
 });
 routes.get('/:id/planilhas',async c=>{const {results}=await c.env.DB.prepare('SELECT id,nome,tipo,status,versao,atualizada_em,(SELECT COUNT(*) FROM obra_planilha_itens i WHERE i.planilha_id=p.id AND i.ativo=1) AS itens_total FROM obra_planilhas p WHERE obra_id=? ORDER BY atualizada_em DESC,id DESC').bind(Number(c.req.param('id'))).all();return c.json({planilhas:results});});
+routes.get('/:id/planilhas/:planilha/catalogo',async(c,next)=>{if(!await c.env.DB.prepare('SELECT id FROM obra_planilhas WHERE id=? AND obra_id=?').bind(Number(c.req.param('planilha')),Number(c.req.param('id'))).first())return c.json({error:'Planilha não encontrada.'},404);return buscarCatalogo(c,next);});
 routes.get('/:id/planilhas/:planilha',async c=>{const p=await ler(c,Number(c.req.param('planilha')));return p?c.json({planilha:p}):c.json({error:'Planilha não encontrada.'},404);});
 routes.post('/:id/planilhas',async c=>{
   const parsed=planilhaConteudoSchema.safeParse(await c.req.json().catch(()=>null));if(!parsed.success)return c.json({error:'Planilha inválida.',detalhes:parsed.error.issues.map(i=>i.message)},400);
@@ -103,9 +106,9 @@ routes.post('/:id/planilhas',async c=>{
 });
 routes.put('/:id/planilhas/:planilha',async c=>{
   const id=Number(c.req.param('planilha')),atual=await ler(c,id);if(!atual)return c.json({error:'Planilha não encontrada.'},404);
-  const parsed=z.object({versao:z.number().int().positive(),conteudo:planilhaConteudoSchema,substituir_referencias_sbc:z.array(z.string().uuid()).max(2000).optional()}).strict().safeParse(await c.req.json().catch(()=>null));if(!parsed.success)return c.json({error:'Conteúdo inválido.',detalhes:parsed.error.issues.map(i=>i.message)},400);
+  const parsed=z.object({versao:z.number().int().positive(),conteudo:planilhaConteudoSchema,substituir_referencias_sbc:z.array(z.string().uuid()).max(2000).optional(),substituir_referencias:z.array(z.string().uuid()).max(2000).optional()}).strict().safeParse(await c.req.json().catch(()=>null));if(!parsed.success)return c.json({error:'Conteúdo inválido.',detalhes:parsed.error.issues.map(i=>i.message)},400);
   if(parsed.data.versao!==atual.versao)return c.json({error:'Outra sessão alterou a planilha. Seu rascunho foi preservado; reabra e concilie as alterações.'},409);
-  let p:ConteudoPlanilha;try{p=await preparar(c,parsed.data.conteudo,id,new Set(parsed.data.substituir_referencias_sbc));}catch(e){return c.json({error:(e as Error).message},400);}
+  let p:ConteudoPlanilha;try{p=await preparar(c,parsed.data.conteudo,id,new Set(parsed.data.substituir_referencias_sbc),new Set(parsed.data.substituir_referencias));}catch(e){return c.json({error:(e as Error).message},400);}
   const token=crypto.randomUUID();
   const res=await c.env.DB.batch([c.env.DB.prepare('UPDATE obra_planilhas SET nome=?,tipo=?,descricao=?,status=?,somente_mao_de_obra=?,versao=versao+1,operacao=?,atualizada_em=CURRENT_TIMESTAMP WHERE id=? AND obra_id=? AND versao=?').bind(p.nome,p.tipo,p.descricao,p.status,p.somente_mao_de_obra===null?null:Number(p.somente_mao_de_obra),token,id,atual.obra_id,parsed.data.versao),...escritas(c,p,id,token)]);
   if(!res[0].meta.changes)return c.json({error:'Conflito de versão. Rascunho preservado.'},409);

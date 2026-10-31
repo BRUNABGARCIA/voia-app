@@ -34,6 +34,13 @@ export function substituirReferenciaSbc(item:ItemPlanilha,r:ResultadoCatalogo):I
  const novo=itemDoCatalogo(r,item.grupo);
  return {...item,servico:novo.servico,descricao:novo.descricao,unidade:novo.unidade,fonte:novo.fonte,biblioteca_id:null,referencia_origem:novo.referencia_origem};
 }
+/** Inline selection changes the technical reference, never the user's quantities,
+ * adopted price, classification or row identity. Worksheet code != source code. */
+export function aplicarReferenciaNaLinha(item:ItemPlanilha,r:ResultadoCatalogo):ItemPlanilha{
+ const novo=itemDoCatalogo(r,item.grupo);
+ const next={...item,biblioteca_id:novo.biblioteca_id,servico:novo.servico,descricao:novo.descricao,unidade:novo.unidade,fonte:novo.fonte,referencia_origem:novo.referencia_origem,escopo:item.escopo||novo.escopo,observacoes:item.observacoes||novo.observacoes};
+ return r.tipo_base==='SINAPI'&&item.referencia_origem?.tipo_base==='SINAPI'&&item.referencia_origem.regime_escolhido?selecionarRegime(next,item.referencia_origem.regime_escolhido):next;
+}
 /** Import format is chosen explicitly; ambiguous separators never choose the convention silently. */
 export function precoImportado(v:string|number,formato:'br'|'decimal'):number|null{
   if(typeof v==='number'){if(!Number.isFinite(v)||v<0||v>1e9)throw Error('Preço fora do limite');if(Math.abs(v*100-Math.round(v*100))>0.00001)throw Error('Preço com mais de duas casas decimais; confirme um valor em centavos antes de importar.');return Math.round(v*100);}
