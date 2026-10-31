@@ -1,3 +1,4 @@
+import assistidas from './assistidas';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
@@ -8,17 +9,20 @@ import { normalizarBusca } from '../../shared/planilhas';
 import { SELECT_CATALOGO,anexarCustosSicro } from './catalogo';
 
 const routes=new Hono<AuthEnv>();
-routes.use('*',withSession,requireAuth,requireRole('administrador','gestor'),bodyLimit({maxSize:1_000_000,onError:c=>c.json({error:'Lote excede 1 MB.'},413)}));
+routes.use('*',withSession,requireAuth,requireRole('administrador','gestor'));
+const limiteLote=bodyLimit({maxSize:1_000_000,onError:c=>c.json({error:'Lote excede 1 MB.'},413)});
+routes.use('*',(c,next)=>c.req.path.includes('/assistidas/')&&c.req.path.includes('/arquivo/')?next():limiteLote(c,next));
+routes.route('/assistidas',assistidas);
 routes.onError((e,c)=>{console.error('Bases de serviços',e);return c.json({error:'Operação não concluída. Nenhum lote foi publicado parcialmente.'},409);});
 const admin=requireRole('administrador');
 function textoSqlSemAcento(coluna:string){let sql=`lower(${coluna})`;for(const [letras,base] of [['áàâãäÁÀÂÃÄ','a'],['éèêëÉÈÊË','e'],['íìîïÍÌÎÏ','i'],['óòôõöÓÒÔÕÖ','o'],['úùûüÚÙÛÜ','u'],['çÇ','c']])for(const letra of letras)sql=`replace(${sql},'${letra}','${base}')`;return sql;}
 const hash=async(v:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(v)))).map(b=>b.toString(16).padStart(2,'0')).join('');
-async function preparar(itens:BaseItem[]){return Promise.all(itens.map(async i=>({...i,busca:buscaItem(i),assinatura:await hash(JSON.stringify(i)),chave:chaveItem(i)})));}
+export async function preparar(itens:BaseItem[]){return Promise.all(itens.map(async i=>({...i,busca:buscaItem(i),assinatura:await hash(JSON.stringify(i)),chave:chaveItem(i)})));}
 const loteSchema=z.object({itens:z.array(baseItemSchema).min(1).max(500)}).strict();
-async function validarFonte(db:D1Database,base:number,itens:BaseItem[]){
- const b=await db.prepare('SELECT tipo FROM bases_referencia WHERE id=?').bind(base).first<{tipo:string}>();
+export async function validarFonte(db:D1Database,base:number,itens:BaseItem[]){
+ const b=await db.prepare('SELECT tipo,versao FROM bases_referencia WHERE id=?').bind(base).first<{tipo:string;versao:string}>();
  return itens.every(i=>{
-  if(b?.tipo==='SBC'&&!itemSbcValido(i))return false;
+  if(b?.tipo==='SBC'&&!itemSbcValido(i,b.versao===VERSAO_SBC))return false;
   if(b?.tipo==='SICRO'&&!i.sicro)return false;
   if(i.sicro){if(b?.tipo!=='SICRO'||i.preco_centavos!==null||i.preco_nao_desonerado_centavos!==undefined||i.preco_desonerado_centavos!==undefined||i.tipo!==(i.sicro.subtipo==='composicao'?'composicao':'insumo')||i.classificacao!==i.sicro.subtipo)return false;
    const keys=i.sicro.custos.map(c=>JSON.stringify([c.tipo,c.edicao]));if(new Set(keys).size!==keys.length)return false;
@@ -29,7 +33,7 @@ async function validarFonte(db:D1Database,base:number,itens:BaseItem[]){
  });
 }
 
-async function comparar(db:D1Database,base:number,itens:BaseItem[]){
+export async function comparar(db:D1Database,base:number,itens:BaseItem[]){
  const p=await preparar(itens);const {results}=await db.prepare('SELECT codigo,tipo,classificacao,assinatura FROM base_itens WHERE base_id=? AND codigo IN(SELECT json_extract(value,\'$.codigo\') FROM json_each(?))').bind(base,JSON.stringify(p)).all<{codigo:string;tipo:string;classificacao:string;assinatura:string}>();
  const mapa=new Map(results.map(i=>[chaveItem(i),i.assinatura]));const vistos=new Set<string>();
  const estados=p.map(i=>{if(vistos.has(i.chave))return 'invalido';vistos.add(i.chave);const a=mapa.get(i.chave);return a===undefined?'novo':a===i.assinatura?'existente':'alterado';});
@@ -47,7 +51,7 @@ routes.get('/busca',async c=>{
  const {results}=await c.env.DB.prepare(`SELECT * FROM (${SELECT_CATALOGO}) ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY CASE WHEN grupo=? AND ?<>'' THEN 0 ELSE 1 END,fonte,codigo,id LIMIT ? OFFSET ?`).bind(...params,etapa,etapa,limite+1,pagina*limite).all();
  return c.json({resultados:await anexarCustosSicro(c.env.DB,results.slice(0,limite).map(({busca:_,...r})=>{void _;return r;}) as import('../../shared/bases-servicos').ResultadoCatalogo[]),mais:results.length>limite,pagina});
 });
-routes.get('/bases',async c=>{const {results}=await c.env.DB.prepare('SELECT b.*,(SELECT COUNT(*) FROM base_itens WHERE base_id=b.id) AS itens_total FROM bases_referencia b ORDER BY b.id DESC').all();return c.json({bases:results});});
+routes.get('/bases',async c=>{const {results}=await c.env.DB.prepare(`SELECT b.*,(SELECT COUNT(*) FROM base_itens WHERE base_id=b.id) AS itens_total FROM bases_referencia b WHERE NOT (b.ativa=0 AND EXISTS(SELECT 1 FROM bases_importacoes s WHERE s.base_id=b.id AND s.nova_base=1 AND s.manifesto IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM bases_importacoes s WHERE s.base_id=b.id AND s.status='concluida')) ORDER BY b.id DESC`).all();return c.json({bases:results});});
 routes.post('/bases',admin,async c=>{const p=baseSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Metadados da base inválidos.'},400);const v=p.data;if(v.tipo==='SBC'&&(v.nome!==NOME_SBC||v.uf!=='MT'||v.competencia!=='09/2026'||v.data_referencia!=='01/09/2026'||v.versao!==VERSAO_SBC||v.regime!==''))return c.json({error:'Use a identificação do relatório SBC Cuiabá/MT 09/2026 auditado.'},400);if(v.tipo==='SINAPI'&&(v.regime!==''||!/^([0][1-9]|1[0-2])\/20\d{2}$/.test(v.competencia)||! /^[A-Z]{2}$/.test(v.uf)))return c.json({error:'SINAPI exige competência MM/AAAA e UF; os regimes pertencem aos itens, não à base.'},400);if(v.tipo==='SINAPI'&&await c.env.DB.prepare("SELECT id FROM bases_referencia WHERE tipo='SINAPI' AND competencia=? AND uf=? AND versao=?").bind(v.competencia,v.uf,v.versao).first())return c.json({error:'Esta referência SINAPI já existe. Use a mesma base para os dois regimes.'},409);const base=await c.env.DB.prepare('INSERT INTO bases_referencia(nome,tipo,descricao,origem,competencia,uf,data_referencia,versao,regime,observacoes,criada_por) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING *').bind(v.nome,v.tipo,v.descricao,v.origem,v.competencia,v.uf,v.data_referencia,v.versao,v.regime,v.observacoes,c.get('user')!.id).first();return c.json({base},201);});
 routes.patch('/bases/:base',admin,async c=>{const p=z.object({ativa:z.boolean()}).strict().safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Informe apenas ativa/inativa. Uma nova competência ou preço exige nova versão da base.'},400);const r=await c.env.DB.prepare('UPDATE bases_referencia SET ativa=?,atualizada_em=CURRENT_TIMESTAMP WHERE id=?').bind(Number(p.data.ativa),Number(c.req.param('base'))).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Base não encontrada.'},404);});
 routes.get('/bases/:base/itens',async c=>{const id=Number(c.req.param('base'));const base=await c.env.DB.prepare('SELECT tipo FROM bases_referencia WHERE id=?').bind(id).first<{tipo:string}>();if(!base)return c.json({error:'Base não encontrada.'},404);const pagina=Math.max(0,Number(c.req.query('pagina'))||0);const {results}=await c.env.DB.prepare('SELECT * FROM base_itens WHERE base_id=? ORDER BY codigo,id LIMIT 51 OFFSET ?').bind(id,pagina*50).all();const rows=results.slice(0,50).map(r=>({...r,tipo_base:base.tipo})) as unknown as import('../../shared/bases-servicos').ResultadoCatalogo[];return c.json({itens:await anexarCustosSicro(c.env.DB,rows),mais:results.length>50});});
@@ -60,11 +64,12 @@ routes.post('/bases/:base/importacoes',admin,async c=>{
  if(antigo){if(antigo.status==='concluida')return c.json({importacao:antigo,repetida:true});if(antigo.status!=='preparando'||antigo.criada_por!==c.get('user')!.id||antigo.total!==p.data.total||antigo.lotes!==p.data.lotes)return c.json({error:'Importação já registrada com outra situação. Use novo arquivo ou nova versão.'},409);return c.json({importacao:antigo});}
  const id=crypto.randomUUID(),v=p.data;await c.env.DB.prepare("INSERT INTO bases_importacoes(id,base_id,arquivo_nome,arquivo_hash,total,lotes,status,criada_por) VALUES(?,?,?,?,?,?,'preparando',?)").bind(id,base,v.arquivo_nome,v.arquivo_hash,v.total,v.lotes,c.get('user')!.id).run();return c.json({importacao:{id,status:'preparando'}},201);
 });
-async function sessao(db:D1Database,base:number,id:string,user:number){return db.prepare("SELECT s.* FROM bases_importacoes s JOIN bases_referencia b ON b.id=s.base_id WHERE s.id=? AND s.base_id=? AND s.criada_por=? AND s.status='preparando' AND b.ativa=1").bind(id,base,user).first<{id:string;lotes:number;total:number}>();}
+async function sessao(db:D1Database,base:number,id:string,user:number){return db.prepare("SELECT s.* FROM bases_importacoes s JOIN bases_referencia b ON b.id=s.base_id WHERE s.id=? AND s.base_id=? AND s.criada_por=? AND s.status='preparando' AND (b.ativa=1 OR (s.nova_base=1 AND s.manifesto IS NOT NULL))").bind(id,base,user).first<{id:string;lotes:number;total:number;manifesto:string|null}>();}
 routes.put('/bases/:base/importacoes/:importacao/lotes/:seq',admin,async c=>{
  const base=Number(c.req.param('base')),id=c.req.param('importacao'),s=await sessao(c.env.DB,base,id,c.get('user')!.id),seq=Number(c.req.param('seq'));
  if(!s)return c.json({error:'Importação ativa não encontrada.'},404);if(!Number.isInteger(seq)||seq<0||seq>=s.lotes)return c.json({error:'Sequência inválida.'},400);
- const p=loteSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success||!await validarFonte(c.env.DB,base,p.data.itens))return c.json({error:'Lote inválido ou incompatível com a fonte. Confira tipo, unidade, custos, regimes e edição.'},400);const itens=await preparar(p.data.itens),dados=JSON.stringify(itens),sha=await hash(dados);
+ const p=loteSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success||!await validarFonte(c.env.DB,base,p.data.itens))return c.json({error:'Lote inválido ou incompatível com a fonte. Confira tipo, unidade, custos, regimes e edição.'},400);if(s.manifesto){const m=JSON.parse(s.manifesto) as import('../../shared/importacao-assistida').ManifestoBase;const docs=new Set(m.documentos.map(d=>d.sha256));if(p.data.itens.some(i=>m.identidade.fonte==='SBC'?i.metadados?.uf!==m.identidade.uf||i.metadados?.cidade!==m.identidade.cidade||i.metadados?.competencia!==m.identidade.competencia||!docs.has(String(i.metadados?.documento_sha256)):m.identidade.fonte==='SICRO'?!i.sicro||i.sicro.custos.some(c=>!docs.has(c.sha256))||i.sicro.memorias.some(c=>!docs.has(c.sha256)):false))return c.json({error:'Proveniência não pertence ao conjunto confirmado.'},400);}
+ const itens=await preparar(p.data.itens),dados=JSON.stringify(itens),sha=await hash(dados);
  const antigo=await c.env.DB.prepare('SELECT hash FROM bases_importacao_lotes WHERE importacao_id=? AND sequencia=?').bind(id,seq).first<{hash:string}>();if(antigo)return antigo.hash===sha?c.json({ok:true,repetido:true}):c.json({error:'Lote já recebido com outro conteúdo.'},409);
  const recebido=await c.env.DB.prepare("INSERT INTO bases_importacao_lotes(importacao_id,sequencia,hash,dados,quantidade) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND base_id=? AND criada_por=? AND status='preparando')").bind(id,seq,sha,dados,itens.length,id,base,c.get('user')!.id).run();return recebido.meta.changes?c.json({ok:true}):c.json({error:'A situação da importação mudou; lote não recebido.'},409);
 });
@@ -73,7 +78,8 @@ routes.post('/bases/:base/importacoes/:importacao/concluir',admin,async c=>{
  const token=crypto.randomUUID();
  const linhas=`SELECT j.value AS item FROM bases_importacao_lotes l,json_each(l.dados) j WHERE l.importacao_id=?`;
  const claim=c.env.DB.prepare(`UPDATE bases_importacoes SET status='concluida',token=?,concluida_em=CURRENT_TIMESTAMP WHERE id=? AND base_id=? AND criada_por=? AND status='preparando'
- AND EXISTS(SELECT 1 FROM bases_referencia WHERE id=? AND ativa=1)
+ AND EXISTS(SELECT 1 FROM bases_referencia WHERE id=? AND (ativa=1 OR (bases_importacoes.nova_base=1 AND bases_importacoes.manifesto IS NOT NULL)))
+ AND (manifesto IS NULL OR (SELECT COUNT(*) FROM bases_importacao_arquivos a WHERE a.importacao_id=bases_importacoes.id)=json_array_length(manifesto,'$.arquivos'))
  AND (SELECT COUNT(*) FROM bases_importacao_lotes WHERE importacao_id=?)=lotes
  AND (SELECT COALESCE(SUM(quantidade),0) FROM bases_importacao_lotes WHERE importacao_id=?)=total
  AND (SELECT COUNT(DISTINCT json_extract(item,'$.chave')) FROM (${linhas}))=total
@@ -88,7 +94,9 @@ routes.post('/bases/:base/importacoes/:importacao/concluir',admin,async c=>{
  SELECT b.id,json_extract(k.value,'$.tipo'),json_extract(k.value,'$.edicao'),json_extract(k.value,'$.valor'),json_extract(k.value,'$.unidade'),json_extract(k.value,'$.selecionavel'),k.value
  FROM (${linhas}) x CROSS JOIN base_itens b ON b.base_id=? AND b.codigo=json_extract(x.item,'$.codigo') AND b.tipo=json_extract(x.item,'$.tipo') AND b.classificacao=json_extract(x.item,'$.classificacao'),json_each(json_extract(x.item,'$.sicro.custos')) k
  WHERE b.importacao_id=? AND EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND token=?)`).bind(id,base,id,id,token);
- const res=await c.env.DB.batch([claim,insert,contexto,custos]);if(!res[0].meta.changes)return c.json({error:'Lotes incompletos, códigos repetidos ou itens alterados. Para alterar referências existentes, crie uma nova versão da base.'},409);return c.json({ok:true,novos:res[1].meta.changes,existentes:s.total-res[1].meta.changes});
+ const ativar=c.env.DB.prepare("UPDATE bases_referencia SET ativa=1 WHERE id=? AND EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND token=? AND nova_base=1 AND manifesto IS NOT NULL)").bind(base,id,token);
+ const resumo=c.env.DB.prepare(`UPDATE bases_importacoes SET resumo=json_object('novos',(SELECT COUNT(*) FROM base_itens WHERE importacao_id=?),'existentes',total-(SELECT COUNT(*) FROM base_itens WHERE importacao_id=?),'rejeitados',0,'duplicacoes',0),erro=NULL WHERE id=? AND token=?`).bind(id,id,id,token);
+ const res=await c.env.DB.batch([claim,insert,contexto,custos,ativar,resumo]);if(!res[0].meta.changes)return c.json({error:'Lotes incompletos, códigos repetidos ou itens alterados. Para alterar referências existentes, crie uma nova versão da base.'},409);return c.json({ok:true,novos:res[1].meta.changes,existentes:s.total-res[1].meta.changes});
 });
 routes.post('/bases/:base/importacoes/:importacao/cancelar',admin,async c=>{const r=await c.env.DB.prepare("UPDATE bases_importacoes SET status='cancelada' WHERE id=? AND base_id=? AND criada_por=? AND status='preparando'").bind(c.req.param('importacao'),Number(c.req.param('base')),c.get('user')!.id).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Importação não encontrada.'},404);});
 routes.get('/biblioteca',async c=>{const {results}=await c.env.DB.prepare('SELECT * FROM voia_biblioteca_servicos ORDER BY grupo,nome').all();return c.json({servicos:results});});

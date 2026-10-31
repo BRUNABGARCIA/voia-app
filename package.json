@@ -12,6 +12,7 @@
 		"publish": true
 	},
 	"dependencies": {
+		"@xmldom/xmldom": "^0.9.12",
 		"fflate": "^0.8.3",
 		"hono": "4.11.1",
 		"pdfjs-dist": "^6.4.299",

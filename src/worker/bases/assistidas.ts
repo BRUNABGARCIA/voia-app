@@ -1,0 +1,41 @@
+import {validarArquivoBase} from '../../shared/arquivos-bases';
+import {Hono} from 'hono';
+import {bodyLimit} from 'hono/body-limit';
+import {z} from 'zod';
+import {requireRole,type AuthEnv} from '../auth/middleware';
+import {baseItemSchema} from '../../shared/bases-servicos';
+import {hashBase,manifestoBaseSchema,identidadeBaseSchema,nomeBase,type ManifestoBase,type IdentidadeBase} from '../../shared/importacao-assistida';
+import {itemSbcValido} from '../../shared/sbc';
+import {comparar} from './routes';
+const routes=new Hono<AuthEnv>();
+routes.use('*',requireRole('administrador'));
+const lote=z.object({identidade:identidadeBaseSchema,itens:z.array(baseItemSchema).min(1).max(200)}).strict();
+export async function baseExistente(db:D1Database,i:IdentidadeBase){return db.prepare("SELECT b.*,(SELECT COUNT(*) FROM base_itens WHERE base_id=b.id) itens_total FROM bases_referencia b WHERE tipo=? AND uf=? AND competencia=? AND (?<>'SBC' OR nome=?) ORDER BY id LIMIT 1").bind(i.fonte,i.uf,i.competencia,i.fonte,nomeBase(i)).first<{id:number;ativa:number;itens_total:number;nome:string}>();}
+routes.post('/previa',async c=>{
+ const p=lote.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Identidade ou lote inválido.'},400);
+ const {identidade:i,itens}=p.data;if(itens.some(x=>i.fonte==='SBC'?!itemSbcValido(x,false)||x.metadados?.uf!==i.uf||x.metadados?.cidade!==i.cidade||x.metadados?.competencia!==i.competencia:i.fonte==='SICRO'?!x.sicro:!!x.sicro||x.preco_centavos!==null||x.preco_desonerado_centavos===undefined||x.preco_nao_desonerado_centavos===undefined))return c.json({error:'Itens incompatíveis com a fonte.'},400);
+ const base=await baseExistente(c.env.DB,i);return c.json({base,...(base?await comparar(c.env.DB,base.id,itens):{novos:itens.length,existentes:0,alterados:0,invalidos:new Set(itens.map(x=>[x.codigo,x.tipo,x.classificacao].join('|'))).size===itens.length?0:1})});
+});
+routes.post('/iniciar',async c=>{
+ const p=manifestoBaseSchema.safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Manifesto inválido.'},400);const m=p.data,i=m.identidade,user=c.get('user')!.id;const esperado=await hashBase(new TextEncoder().encode(JSON.stringify([i,m.documentos.map(d=>[d.nome,d.sha256]).sort()])));if(m.arquivo_hash!==esperado)return c.json({error:'Hash do manifesto não corresponde ao contexto e aos documentos.'},400);
+ const existing=await baseExistente(c.env.DB,i);
+ if(existing){const prev=await c.env.DB.prepare("SELECT id,status,criada_por FROM bases_importacoes WHERE base_id=? AND arquivo_hash=? AND status<>'cancelada'").bind(existing.id,m.arquivo_hash).first<{id:string;status:string;criada_por:number}>();if(prev){if(prev.status!=='concluida'&&prev.criada_por!==user)return c.json({error:'Outra administradora está preparando esta competência.'},409);return c.json({base:existing,importacao:prev,repetida:prev.status==='concluida'});}if(!existing.ativa&&!await c.env.DB.prepare("SELECT id FROM bases_importacoes WHERE base_id=? AND nova_base=1 AND status='cancelada' AND criada_por=? AND NOT EXISTS(SELECT 1 FROM base_itens WHERE base_id=?)").bind(existing.id,user,existing.id).first())return c.json({error:'Esta competência está inativa ou possui preparação pendente. Retome ou cancele a importação anterior no histórico.'},409);}
+ const id=crypto.randomUUID(),nome=nomeBase(i),versao=i.fonte==='SBC'?'relatorio-'+m.arquivo_hash.slice(0,16):i.competencia;
+ const insertBase=c.env.DB.prepare("INSERT INTO bases_referencia(nome,tipo,descricao,origem,competencia,uf,data_referencia,versao,regime,observacoes,ativa,criada_por) SELECT ?,?,'',?,?,?, ?,?,'',?,0,? WHERE ?=0").bind(nome,i.fonte,'Arquivos fornecidos pela administradora; '+(i.fonte==='SBC'?'relatório importado, completude não comprovada.':'estrutura oficial validada.'),i.competencia,i.uf,i.atualizacao,versao,'Parser '+m.parser,user,existing?.id??0);
+ const insertImport=c.env.DB.prepare("INSERT INTO bases_importacoes(id,base_id,arquivo_nome,arquivo_hash,total,lotes,status,criada_por,manifesto,nova_base) SELECT ?,id,?,?,?,?,'preparando',?,?,? FROM bases_referencia WHERE nome=? AND tipo=? AND uf=? AND competencia=? AND id=COALESCE(?,id)").bind(id,m.arquivos.map(f=>f.nome).join('; ').slice(0,200),m.arquivo_hash,m.total,m.lotes,user,JSON.stringify(m),existing?.ativa?0:1,existing?.nome??nome,i.fonte,i.uf,i.competencia,existing?.id??null);
+ const result=await c.env.DB.batch([insertBase,insertImport]);if(!result[1].meta.changes)return c.json({error:'A competência mudou. Refaça a revisão.'},409);
+ return c.json({base:await baseExistente(c.env.DB,i),importacao:{id,status:'preparando'}},201);
+});
+routes.put('/:id/arquivo/:sha',bodyLimit({maxSize:20*1024*1024,onError:c=>c.json({error:'Arquivo excede 20 MiB.'},413)}),async c=>{
+ const id=c.req.param('id'),digest=c.req.param('sha');const s=await c.env.DB.prepare("SELECT manifesto FROM bases_importacoes WHERE id=? AND criada_por=? AND status='preparando'").bind(id,c.get('user')!.id).first<{manifesto:string}>();if(!s?.manifesto)return c.json({error:'Importação ativa não encontrada.'},404);
+ const m=manifestoBaseSchema.parse(JSON.parse(s.manifesto)),f=m.arquivos.find(a=>a.sha256===digest);if(!f)return c.json({error:'Arquivo não pertence ao manifesto.'},400);const bytes=new Uint8Array(await c.req.arrayBuffer());if(bytes.length!==f.bytes||await hashBase(bytes)!==digest)return c.json({error:'Arquivo truncado ou SHA-256 divergente.'},400);
+ try{validarArquivoBase(bytes,f.nome);}catch(e){return c.json({error:(e as Error).message},400);}const pdf=f.nome.toLowerCase().endsWith('.pdf');
+ const key=`bases/${m.identidade.fonte.toLowerCase()}/${m.identidade.uf}/${m.identidade.competencia.split('/').reverse().join('-')}/${digest}.${f.nome.split('.').pop()!.toLowerCase()}`;
+ if(!await c.env.DOCUMENTOS_BUCKET.head(key))await c.env.DOCUMENTOS_BUCKET.put(key,bytes,{httpMetadata:{contentType:pdf?'application/pdf':'application/octet-stream'},customMetadata:{sha256:digest}});
+ await c.env.DB.prepare("INSERT OR IGNORE INTO bases_importacao_arquivos(importacao_id,sha256,nome,bytes,storage_key) SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM bases_importacoes WHERE id=? AND status='preparando' AND criada_por=?)").bind(id,digest,f.nome,f.bytes,key,id,c.get('user')!.id).run();return c.json({ok:true});
+});
+routes.get('/historico',async c=>{const {results}=await c.env.DB.prepare("SELECT s.id,s.base_id,b.nome,s.status,s.total,s.criada_em,s.concluida_em,s.criada_por,s.erro,s.resumo,s.manifesto FROM bases_importacoes s JOIN bases_referencia b ON b.id=s.base_id WHERE s.manifesto IS NOT NULL ORDER BY s.criada_em DESC LIMIT 30").all();return c.json({importacoes:results});});
+routes.get('/:id/manifesto',async c=>{const s=await c.env.DB.prepare('SELECT manifesto,base_id,status FROM bases_importacoes WHERE id=? AND criada_por=?').bind(c.req.param('id'),c.get('user')!.id).first<{manifesto:string;base_id:number;status:string}>();return s?.manifesto?c.json({manifesto:JSON.parse(s.manifesto) as ManifestoBase,base_id:s.base_id,status:s.status}):c.json({error:'Não encontrado.'},404);});
+routes.get('/:id/arquivo/:sha',async c=>{const f=await c.env.DB.prepare('SELECT nome,storage_key FROM bases_importacao_arquivos WHERE importacao_id=? AND sha256=?').bind(c.req.param('id'),c.req.param('sha')).first<{nome:string;storage_key:string}>();if(!f)return c.json({error:'Evidência não encontrada.'},404);const obj=await c.env.DOCUMENTOS_BUCKET.get(f.storage_key);return obj?new Response(obj.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(f.nome)}`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'}}):c.json({error:'Arquivo indisponível.'},404);});
+routes.post('/:id/falha',async c=>{const p=z.object({erro:z.string().min(1).max(1500)}).strict().safeParse(await c.req.json().catch(()=>null));if(!p.success)return c.json({error:'Erro inválido.'},400);const r=await c.env.DB.prepare("UPDATE bases_importacoes SET erro=? WHERE id=? AND criada_por=? AND status='preparando' AND manifesto IS NOT NULL").bind(p.data.erro,c.req.param('id'),c.get('user')!.id).run();return r.meta.changes?c.json({ok:true}):c.json({error:'Preparação não encontrada.'},404);});
+export default routes;

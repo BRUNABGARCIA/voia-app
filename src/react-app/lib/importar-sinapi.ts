@@ -5,16 +5,16 @@ import { normalizarBusca } from '../../shared/planilhas';
 const NS='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 function documento(s:string){if(/<!DOCTYPE|<!ENTITY|\uFFFD/.test(s))throw Error('XML SINAPI inválido.');const d=new DOMParser().parseFromString(s,'application/xml');if(d.getElementsByTagName('parsererror').length)throw Error('XML SINAPI malformado.');return d;}
 /** Only selected ZIP entries are decompressed; unrelated analytical sheets are never parsed. */
-async function partes(bytes:Uint8Array,permitidas:Set<string>){
+export async function partesSinapi(bytes:Uint8Array,permitidas:Set<string>){
  if(bytes.length>20*1024*1024)throw Error('XLSX deve ter até 20 MiB.');
  const resultado=new Map<string,string>(),vistos=new Set<string>();let total=0,erro:Error|null=null,entradas=0;
- const unzip=new Unzip(e=>{if(++entradas>300||e.name.includes('..')||e.name.startsWith('/')||/vbaProject|externalLinks/i.test(e.name)){erro=Error('Estrutura XLSX não permitida.');return;}if(!permitidas.has(e.name))return;if(vistos.has(e.name)){erro=Error('Parte XLSX duplicada.');return;}vistos.add(e.name);const chunks:Uint8Array[]=[];let tamanho=0;
+ const unzip=new Unzip(e=>{if(++entradas>300||e.name.includes('..')||e.name.startsWith('/')||/vbaProject/i.test(e.name)||(/externalLinks/i.test(e.name)&&!permitidas.has('xl/workbook.xml'))){erro=Error('Estrutura XLSX não permitida.');return;}if(!permitidas.has(e.name))return;if(vistos.has(e.name)){erro=Error('Parte XLSX duplicada.');return;}vistos.add(e.name);const chunks:Uint8Array[]=[];let tamanho=0;
  e.ondata=(falha,data,final)=>{if(falha){erro=falha;return;}total+=data.length;tamanho+=data.length;if(total>64*1024*1024||tamanho>30*1024*1024){erro=Error('Abas selecionadas excedem o limite seguro. Importe composições e insumos separadamente.');e.terminate();return;}chunks.push(data.slice());if(final){const all=new Uint8Array(tamanho);let n=0;for(const c of chunks){all.set(c,n);n+=c.length;}try{resultado.set(e.name,new TextDecoder('utf-8',{fatal:true}).decode(all));}catch{erro=Error('XML não está em UTF-8.');}}};e.start();});unzip.register(UnzipInflate);
  for(let n=0;n<bytes.length;n+=4096){unzip.push(bytes.subarray(n,n+4096),n+4096>=bytes.length);if(erro)throw erro;if(n%262144===0)await new Promise(r=>setTimeout(r,0));}if(erro)throw erro;for(const path of permitidas)if(vistos.has(path)&&!resultado.has(path))throw Error('XLSX incompleto.');return resultado;
 }
 export type EstruturaSinapi={abas:string[];paths:Record<string,string>};
 export async function detectarSinapi(bytes:Uint8Array):Promise<EstruturaSinapi|null>{
- const p=await partes(bytes,new Set(['xl/workbook.xml','xl/_rels/workbook.xml.rels']));if(!p.get('xl/workbook.xml')||!p.get('xl/_rels/workbook.xml.rels'))throw Error('Workbook ausente.');const wb=documento(p.get('xl/workbook.xml')!),rels=documento(p.get('xl/_rels/workbook.xml.rels')!),map=new Map<string,string>();
+ const p=await partesSinapi(bytes,new Set(['xl/workbook.xml','xl/_rels/workbook.xml.rels']));if(!p.get('xl/workbook.xml')||!p.get('xl/_rels/workbook.xml.rels'))throw Error('Workbook ausente.');const wb=documento(p.get('xl/workbook.xml')!),rels=documento(p.get('xl/_rels/workbook.xml.rels')!),map=new Map<string,string>();
  for(const r of Array.from(rels.getElementsByTagNameNS('*','Relationship'))){if(r.getAttribute('TargetMode')==='External')throw Error('Referência externa não permitida.');const t=r.getAttribute('Target')??'';if(t.includes('..'))throw Error('Caminho de aba inválido.');map.set(r.getAttribute('Id')??'',t.startsWith('/xl/')?t.slice(1):'xl/'+t);}
  const paths:Record<string,string>={};for(const s of Array.from(wb.getElementsByTagNameNS('*','sheet'))){const nome=s.getAttribute('name')??'',id=s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id')??'';if(map.has(id))paths[nome]=map.get(id)!;}
  return ['CSD','CCD','ISD','ICD'].some(n=>paths[n])?{abas:Object.keys(paths),paths}:null;
@@ -23,7 +23,7 @@ type Valor={valor:string|number;formula:string|null};
 export async function importarSinapi(bytes:Uint8Array,estrutura:EstruturaSinapi,uf:string,competencia:string,entidade:'composicao'|'insumo'){
  if(!/^[A-Z]{2}$/.test(uf)||!/^\d{2}\/20\d{2}$/.test(competencia))throw Error('Confirme UF e competência da base.');
  const nomes=entidade==='composicao'?['CSD','CCD']:['ISD','ICD'];if(!nomes.some(n=>estrutura.paths[n]))throw Error('Abas da entidade selecionada ausentes.');
- const selecionadas=nomes.filter(n=>estrutura.paths[n]),p=await partes(bytes,new Set([...selecionadas.map(n=>estrutura.paths[n]),'xl/sharedStrings.xml']));
+ const selecionadas=nomes.filter(n=>estrutura.paths[n]),p=await partesSinapi(bytes,new Set([...selecionadas.map(n=>estrutura.paths[n]),'xl/sharedStrings.xml']));
  const sd=p.get('xl/sharedStrings.xml'),strings=sd?Array.from(documento(sd).getElementsByTagNameNS('*','si'),s=>Array.from(s.getElementsByTagNameNS('*','t'),t=>t.textContent??'').join('')):[];
  const itens=new Map<string,BaseItem>(),invalidos:{linha:number;erro:string}[]=[];
  for(const nome of selecionadas){const raw=p.get(estrutura.paths[nome]);if(!raw)throw Error(`Aba ${nome} ausente.`);if(/<!DOCTYPE|<!ENTITY|\uFFFD/.test(raw))throw Error('XML SINAPI inválido.');let coluna=-1,cabecalho=false,referencia=false,regime=false,linhas=0;const vistos=new Set<string>();let ultimaUf:Record<string,Valor>={};
@@ -60,3 +60,13 @@ export async function importarSinapi(bytes:Uint8Array,estrutura:EstruturaSinapi,
 }
 function indiceColuna(s:string){let n=0;for(const c of s)n=n*26+c.charCodeAt(0)-64;return n-1;}
 function letraColuna(n:number):string{return n<26?String.fromCharCode(65+n):letraColuna(Math.floor(n/26)-1)+letraColuna(n%26);}
+
+/** Header-only evidence for the assisted workflow; data rows still use importarSinapi. */
+export async function identificarSinapi(bytes:Uint8Array,estrutura:EstruturaSinapi){
+ const names=['CSD','CCD','ISD','ICD'];if(names.some(n=>!estrutura.paths[n]))throw Error('SINAPI exige CSD, CCD, ISD e ICD no mesmo arquivo.');
+ const parts=await partesSinapi(bytes,new Set([...names.map(n=>estrutura.paths[n]),'xl/sharedStrings.xml']));
+ const ss=parts.get('xl/sharedStrings.xml'),strings=ss?Array.from(documento(ss).getElementsByTagNameNS('*','si'),s=>Array.from(s.getElementsByTagNameNS('*','t'),t=>t.textContent??'').join('')):[];
+ const contexts=names.map(n=>{const raw=parts.get(estrutura.paths[n]);if(!raw)throw Error('Aba SINAPI ausente.');const firstRows=[];for(const r of raw.matchAll(/<row\b[^>]*>[\s\S]*?<\/row>/g)){firstRows.push(r);if(firstRows.length===12)break;}const head=firstRows.map(r=>{const doc=documento(`<worksheet xmlns="${NS}">${r[0]}</worksheet>`);return Array.from(doc.getElementsByTagNameNS('*','c'),c=>{const t=c.getAttribute('t'),val=c.getElementsByTagNameNS('*','v')[0]?.textContent??'';return t==='s'?strings[Number(val)]??'':t==='inlineStr'?Array.from(c.getElementsByTagNameNS('*','t'),x=>x.textContent??'').join(''):val;});}).flat();
+ const comps=[...new Set(head.filter(t=>/^(0[1-9]|1[0-2])\/20\d{2}$/.test(t)))];const ufs=[...new Set(head.filter(t=>/^(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)$/.test(t)))];if(comps.length!==1||!ufs.length)throw Error(`Competência ou UF ausente/ambígua em ${n}.`);return{competencia:comps[0],ufs};});
+ if(contexts.some(c=>c.competencia!==contexts[0].competencia))throw Error('Competências divergentes entre abas SINAPI.');const ufs=contexts[0].ufs.filter(uf=>contexts.every(c=>c.ufs.includes(uf)));if(!ufs.length)throw Error('UF incompatível entre abas SINAPI.');return{competencia:contexts[0].competencia,ufs};
+}

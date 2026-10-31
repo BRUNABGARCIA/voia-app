@@ -44,7 +44,9 @@ function custo(f:Fonte,row:(string|null)[],n:number,col:number,tipo:string,rotul
  return {tipo,rotulo,unidade,edicao,selecionavel,valor:raw==null||raw==='-'?null:raw,arquivo:f.nome,sha256:f.sha256,aba:f.aba,linhas:[n],coluna:String.fromCharCode(65+col)};
 }
 export async function importarSicro(arquivos:ArquivoSicro[]){
- const fontes=new Map<string,Fonte>();for(const nome of nomes){const filename='MT 07-2026 '+nome+'.xlsx',matches=arquivos.filter(f=>f.nome===filename);if(matches.length!==1)throw Error('Forneça exatamente um arquivo '+filename);fontes.set(nome,await lerSicro(matches[0]));}
+ const identity=arquivos.map(f=>/^([A-Z]{2}) (0[1-9]|1[0-2])-(20\d{2}) /.exec(f.nome));if(identity.some(i=>!i)||new Set(identity.map(i=>i![0])).size!==1)throw Error('Pacote SICRO exige UF e competência consistentes nos nomes e cabeçalhos oficiais.');const uf=identity[0]![1],mes=identity[0]![2],ano=identity[0]![3],competencia=mes+'/'+ano;
+ const estados:Record<string,string>={AC:'Acre',AL:'Alagoas',AP:'Amapá',AM:'Amazonas',BA:'Bahia',CE:'Ceará',DF:'Distrito Federal',ES:'Espírito Santo',GO:'Goiás',MA:'Maranhão',MT:'Mato Grosso',MS:'Mato Grosso do Sul',MG:'Minas Gerais',PA:'Pará',PB:'Paraíba',PR:'Paraná',PE:'Pernambuco',PI:'Piauí',RJ:'Rio de Janeiro',RN:'Rio Grande do Norte',RS:'Rio Grande do Sul',RO:'Rondônia',RR:'Roraima',SC:'Santa Catarina',SP:'São Paulo',SE:'Sergipe',TO:'Tocantins'};const meses=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];if(!estados[uf])throw Error('UF SICRO desconhecida.');if(arquivos.length!==nomes.length)throw Error('Pacote SICRO exige os 12 relatórios oficiais, sem extras.');
+ const fontes=new Map<string,Fonte>();for(const nome of nomes){const filename=uf+' '+mes+'-'+ano+' '+nome+'.xlsx',matches=arquivos.filter(f=>f.nome===filename);if(matches.length!==1)throw Error('Forneça exatamente um arquivo '+filename);fontes.set(nome,await lerSicro(matches[0]));}
  const get=(n:string)=>fontes.get(n)!;const itens=new Map<string,BaseItem>();let repeticoes=0;
  for(const nome of nomes.slice(0,6)){
   const f=get(nome),equip=nome.includes('Equipamentos'),material=nome.includes('Materiais'),composicao=nome.includes('Composições');const subtipo=composicao?'composicao':equip?'equipamento':material?'material':'mao_de_obra';const edicao=nome.includes('com desoneração')?'com desoneração':subtipo==='mao_de_obra'?'sem desoneração':equip?'edição sem sufixo':'publicada';
@@ -69,14 +71,14 @@ export async function importarSicro(arquivos:ArquivoSicro[]){
  for(let n=0;n<=analitico.linhas.length;n++){
   const row=analitico.linhas[n];if(n===analitico.linhas.length||row?.[0]==='SISTEMA DE CUSTOS REFERENCIAIS DE OBRAS - SICRO'){
    if(start>=0){const rows=analitico.linhas.slice(start,n),total=rows.find(r=>r.includes('Custo unitário direto total'))?.[8];if(total!==itens.get(code)?.sicro?.custos[0].valor)throw Error('Total analítico divergente: '+code);memoria(analitico,code,start,rows);blocos++;}
-   if(row){if(row[3]!=='Mato Grosso'||analitico.linhas[n+1]?.[3]!=='Julho/2026')throw Error('Localidade/competência SICRO divergente.');start=n;code=analitico.linhas[n+2]?.[0]??'';}
+   if(row){if(row[3]!==estados[uf]||analitico.linhas[n+1]?.[3]!==meses[Number(mes)-1]+'/'+ano)throw Error('Localidade/competência SICRO divergente.');start=n;code=analitico.linhas[n+2]?.[0]??'';}
   }
  }
  if(blocos!==[...itens.values()].filter(i=>i.tipo==='composicao').length)throw Error('Blocos analíticos incompletos.');
  for(const nome of nomes.slice(7,9)){const f=get(nome);let inicio=-1,c='';for(let n=0;n<=f.linhas.length;n++){const r=f.linhas[n];if(n===f.linhas.length||r?.[0]==='Código'){if(inicio>=0)memoria(f,c,inicio,f.linhas.slice(inicio,n));if(r){inicio=n;c=f.linhas[n+1]?.[0]??'';}}}}
  for(const nome of nomes.slice(9,11)){const f=get(nome);for(let n=2;n<f.linhas.length;n++){const r=f.linhas[n];if(codigo(r[0]))memoria(f,r[0]!,n,[f.linhas[0],f.linhas[1],r]);}}
- const origem=get(nomes[11]);if(!origem.linhas.some(r=>r[29]==='MT'))throw Error('Coluna MT de origem não encontrada.');for(let n=0;n<origem.linhas.length;n++){const r=origem.linhas[n];if(codigo(r[0])){const i=itens.get(r[0]!);if(!i||i.tipo!=='insumo')throw Error('Origem sem insumo.');i.metadados={origem_MT:r[29]??null,arquivo_origem:origem.nome,sha256_origem:origem.sha256,aba_origem:origem.aba,linha_origem:n+1};}}
+ const origem=get(nomes[11]);const colunaUf=origem.linhas.find(r=>r.includes(uf))?.indexOf(uf)??-1;if(colunaUf<0)throw Error('Coluna UF de origem não encontrada.');for(let n=0;n<origem.linhas.length;n++){const r=origem.linhas[n];if(codigo(r[0])){const i=itens.get(r[0]!);if(!i||i.tipo!=='insumo')throw Error('Origem sem insumo.');i.metadados={['origem_'+uf]:r[colunaUf]??null,arquivo_origem:origem.nome,sha256_origem:origem.sha256,aba_origem:origem.aba,linha_origem:n+1};}}
  const resultado=[...itens.values()].map(i=>baseItemSchema.parse(i));
  const manifesto=[...fontes.values()].map(f=>({arquivo:f.nome,sha256:f.sha256,aba:f.aba}));
- return {itens:resultado,repeticoes,manifesto,arquivo_hash:await hash(new TextEncoder().encode(JSON.stringify(manifesto))),competencia:'07/2026',uf:'MT'};
+ return {itens:resultado,repeticoes,manifesto,arquivo_hash:await hash(new TextEncoder().encode(JSON.stringify(manifesto))),competencia,uf};
 }
