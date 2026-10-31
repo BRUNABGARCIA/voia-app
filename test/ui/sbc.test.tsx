@@ -1,0 +1,12 @@
+import {expect,it,vi,afterEach} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {importarSbc} from '../../src/react-app/lib/importar-sbc';
+import {centavosSbc,FONTES_SBC} from '../../src/shared/sbc';
+import {render,screen,cleanup} from '@testing-library/react';
+import ProvenienciaSbc from '../../src/react-app/components/ProvenienciaSbc';
+afterEach(()=>{vi.unstubAllGlobals();cleanup();});
+it('conversão SBC é decimal exata e não inventa ausências',()=>{expect(centavosSbc('3.372,64')).toBe(337264);expect(centavosSbc('0,00')).toBe(0);expect(()=>centavosSbc('')).toThrow();expect(()=>centavosSbc('1,234')).toThrow();});
+it('proveniência torna explícito relatório, localidade, data e página',()=>{render(<ProvenienciaSbc metadados={JSON.stringify({fonte:'SBC',regiao:'CBA - Cuiabá - MT',cidade:'Cuiabá',uf:'MT',atualizacao:'01/09/2026',competencia:'09/2026',natureza:'relatório importado',documento:FONTES_SBC.insumo.nome,documento_sha256:FONTES_SBC.insumo.sha256,pagina:2,tipo:'insumo',preco_original:'1,50'})}/>);expect(screen.getByText(/página 2/)).toBeTruthy();expect(screen.getByText(/não comprova a completude/)).toBeTruthy();});
+it.skipIf(!process.env.VOIA_SBC_DIR)('dois PDFs reais: 400 registros, prefixos, UNN, multiline e páginas originais',async()=>{vi.stubGlobal('pdfjsWorker',await import('pdfjs-dist/legacy/build/pdf.worker.mjs'));const r=await importarSbc(Object.values(FONTES_SBC).map(f=>({nome:f.nome,bytes:new Uint8Array(readFileSync(join(process.env.VOIA_SBC_DIR!,f.nome)))})));expect(r.itens).toHaveLength(400);expect(r.itens.filter(i=>i.tipo==='composicao')).toHaveLength(200);expect(r.itens.filter(i=>i.tipo==='insumo')).toHaveLength(200);expect(r.itens.filter(i=>i.descricao[0].match(/\d/))).toHaveLength(4);expect(r.itens.filter(i=>i.descricao.includes('\n'))).toHaveLength(16);expect(r.itens.find(i=>i.codigo==='20677')?.unidade).toBe('UNN');expect(r.itens.find(i=>i.codigo==='100200')?.descricao).toMatch(/^1TELHA/);expect(r.itens.find(i=>i.codigo==='57590')?.descricao).toMatch(/^20MURO/);expect(r.itens.find(i=>i.codigo==='67104')?.descricao).toMatch(/^14201SENSOR/);expect(r.itens.find(i=>i.codigo==='61209')?.descricao).toMatch(/^7825CONDULETE/);expect(r.itens.find(i=>i.codigo==='37412')?.metadados?.pagina).toBe(4);expect(r.itens.every(i=>i.preco_centavos!==null&&i.preco_centavos>0)).toBe(true);},60000);
+it('arquivos não auditados são recusados antes da extração',async()=>{await expect(importarSbc([])).rejects.toThrow('dois PDFs');});

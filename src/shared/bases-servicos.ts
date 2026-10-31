@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { sicroItemSchema,chaveCustoSicro,type ReferenciaSicro } from './sicro';
 import { normalizarBusca, novoItem, type ItemPlanilha } from './planilhas';
 
-export const TIPOS_BASE=['VOIA','SINAPI','SICRO','PROPRIA','IMPORTADA','OUTRA'] as const;
+export const TIPOS_BASE=['VOIA','SINAPI','SICRO','SBC','PROPRIA','IMPORTADA','OUTRA'] as const;
 export const REGIMES_REFERENCIA=['nao_desonerado','desonerado'] as const;
 export type RegimeReferencia=typeof REGIMES_REFERENCIA[number];
 export const precosRegimesSchema={preco_nao_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional(),preco_desonerado_centavos:z.number().int().positive().max(1e11).nullable().optional()};
@@ -28,6 +28,11 @@ export function dividirLotes(itens:BaseItem[]){const lotes:BaseItem[][]=[];let a
 export function itemDoCatalogo(r:ResultadoCatalogo,grupo:string):ItemPlanilha{
   const i=novoItem(r.grupo||grupo);
   return {...i,biblioteca_id:r.fonte==='biblioteca'?r.id:null,servico:r.descricao.slice(0,300),descricao:r.fonte==='base'?r.descricao:'',escopo:r.escopo,unidade:r.unidade,categoria:r.categoria,subcategoria:r.subcategoria,observacoes:r.observacoes,fonte:r.base_nome,referencia_origem:{...(r.sicro?{sicro:r.sicro,custo_sicro_escolhido:r.sicro.subtipo==='equipamento'?null:(r.sicro.custos.filter(c=>c.selecionavel).length===1?chaveCustoSicro(r.sicro.custos.find(c=>c.selecionavel)!):null)}:{}),fonte:r.fonte,base_id:r.base_id,item_id:r.id,codigo:r.codigo,descricao:r.descricao,unidade:r.unidade,competencia:r.competencia,uf:r.uf,versao:r.versao,origem:r.origem,preco_centavos:r.preco_centavos,tipo:r.tipo,classificacao:r.classificacao,base_nome:r.base_nome,regime:r.regime??'',data_referencia:r.data_referencia??'',...((r.tipo_base==='SINAPI'&&r.preco_centavos===null)||r.preco_nao_desonerado_centavos!=null||r.preco_desonerado_centavos!=null?{preco_nao_desonerado_centavos:r.preco_nao_desonerado_centavos??null,preco_desonerado_centavos:r.preco_desonerado_centavos??null,regime_escolhido:null,preco_referencia_centavos:null}:{}),...(r.metadados?{metadados:r.metadados}:{}),...(r.fonte==='base'?{tipo_base:r.tipo_base as typeof TIPOS_BASE[number]}:{})}};
+}
+export function substituirReferenciaSbc(item:ItemPlanilha,r:ResultadoCatalogo):ItemPlanilha{
+ if(item.referencia_origem?.tipo_base!=='SBC'||r.tipo_base!=='SBC')throw Error('Reseleção disponível somente entre referências SBC.');
+ const novo=itemDoCatalogo(r,item.grupo);
+ return {...item,servico:novo.servico,descricao:novo.descricao,unidade:novo.unidade,fonte:novo.fonte,biblioteca_id:null,referencia_origem:novo.referencia_origem};
 }
 /** Import format is chosen explicitly; ambiguous separators never choose the convention silently. */
 export function precoImportado(v:string|number,formato:'br'|'decimal'):number|null{
