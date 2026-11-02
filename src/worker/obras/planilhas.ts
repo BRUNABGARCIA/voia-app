@@ -1,3 +1,4 @@
+import {calcularOrcamento,precoReferenciaCentavos} from '../../shared/orcamento';
 import {buscarCatalogo} from '../bases/routes';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -27,7 +28,8 @@ async function ler(c:Context<AuthEnv>,id:number):Promise<Planilha|null>{
     c.env.DB.prepare('SELECT codigo,nome FROM obra_planilha_grupos WHERE planilha_id=? ORDER BY ordem').bind(id).all<{codigo:string;nome:string}>(),
     c.env.DB.prepare('SELECT dados FROM obra_planilha_itens WHERE planilha_id=? AND ativo=1 ORDER BY ordem').bind(id).all<{dados:string}>(),
   ]);
-  return {...p,somente_mao_de_obra:p.somente_mao_de_obra===null?null:!!p.somente_mao_de_obra,grupos:g.results,itens:i.results.map(i=>JSON.parse(i.dados) as ItemPlanilha)};
+  const itens=i.results.map(i=>JSON.parse(i.dados) as ItemPlanilha);
+  return {...p,orcamento:calcularOrcamento(itens),somente_mao_de_obra:p.somente_mao_de_obra===null?null:!!p.somente_mao_de_obra,grupos:g.results,itens};
 }
 async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number,trocasSbc=new Set<string>(),trocas=new Set<string>()){
   const antigos=id?(await c.env.DB.prepare('SELECT id,codigo,dados FROM obra_planilha_itens WHERE planilha_id=?').bind(id).all<{id:string;codigo:string;dados:string}>()).results:[];
@@ -64,6 +66,22 @@ async function preparar(c:Context<AuthEnv>,p:ConteudoPlanilha,id?:number,trocasS
       if(!snapshot)throw Error('Referência ativa não encontrada.');i.referencia_origem=ref?{...snapshot,...(ref.custo_sicro_escolhido!==undefined?{custo_sicro_escolhido:ref.custo_sicro_escolhido}:{}),...(ref.regime_escolhido!==undefined?{regime_escolhido:ref.regime_escolhido,preco_referencia_centavos:ref.preco_referencia_centavos}: {})}:snapshot;
     }
   }
+  // Preserve historical provenance; new manual edits cannot retain a misleading reference origin.
+  for(const i of p.itens){
+    const old=antigos.find(a=>a.id===i.id);const h=old?JSON.parse(old.dados) as ItemPlanilha:null;
+    if(h&&h.valor_unit_centavos===i.valor_unit_centavos&&h.preco_adotado_origem===i.preco_adotado_origem&&JSON.stringify(h.preco_adotado_referencia)===JSON.stringify(i.preco_adotado_referencia))continue;
+    if(i.valor_unit_centavos===null){i.preco_adotado_origem=null;i.preco_adotado_referencia=null;continue;}
+    if(i.preco_adotado_origem==='referencia'){
+      const ref=i.preco_adotado_referencia;
+      if(!ref||!regimeValido(ref)||precoReferenciaCentavos(ref)!==i.valor_unit_centavos)throw Error('Origem do preço adotado incompatível com a referência.');
+      const original=await referenciaCatalogo(c.env.DB,ref.fonte,ref.item_id);
+      const canon=original?itemDoCatalogo(original,i.grupo).referencia_origem:null;
+      if(!canon||JSON.stringify(referenciaTecnica(ref))!==JSON.stringify(referenciaTecnica(canon))){
+        const historica=await c.env.DB.prepare("SELECT id FROM obra_planilha_itens WHERE json_extract(dados,'$.preco_adotado_referencia')=? AND valor_unit_centavos=? LIMIT 1").bind(JSON.stringify(ref),i.valor_unit_centavos).first();
+        if(!historica)throw Error('Origem do preço adotado não validada.');
+      }
+    }else{i.preco_adotado_origem='manual';i.preco_adotado_referencia=null;}
+  }
   // Reserve explicitly imported codes before allocating blanks; never renumber existing identities.
   for(const i of p.itens){const anterior=mapa.get(i.id);if(anterior&&anterior!==i.codigo)throw new Error('Código histórico não pode ser alterado.');if(!anterior&&i.codigo){if(ocupados.has(i.codigo))throw new Error('Código já utilizado nesta planilha.');ocupados.add(i.codigo);proximos[i.grupo]=Math.max(proximos[i.grupo]??0,Number(i.codigo.split('.')[1]));}}
   for(const i of p.itens)if(!i.codigo){const n=(proximos[i.grupo]??0)+1;if(n>999999)throw new Error('Limite de códigos atingido.');proximos[i.grupo]=n;i.codigo=`${i.grupo}.${String(n).padStart(2,'0')}`;}
@@ -79,7 +97,7 @@ function escritas(c:Context<AuthEnv>,p:ConteudoPlanilha,id:number,token:string){
     c.env.DB.prepare(`INSERT INTO obra_planilha_itens(id,planilha_id,codigo,grupo,ordem,ativo,biblioteca_id,quantidade,valor_unit_centavos,memoria,dados)
       SELECT json_extract(value,'$.id'),?,json_extract(value,'$.codigo'),json_extract(value,'$.grupo'),CAST(key AS INTEGER),1,json_extract(value,'$.biblioteca_id'),json_extract(value,'$.quantidade'),json_extract(value,'$.valor_unit_centavos'),json_extract(value,'$.memoria'),value FROM json_each(?) WHERE ${gate}
       ON CONFLICT(id) DO UPDATE SET ordem=excluded.ordem,ativo=1,biblioteca_id=excluded.biblioteca_id,quantidade=excluded.quantidade,valor_unit_centavos=excluded.valor_unit_centavos,memoria=excluded.memoria,dados=excluded.dados WHERE obra_planilha_itens.planilha_id=excluded.planilha_id AND obra_planilha_itens.codigo=excluded.codigo`).bind(id,JSON.stringify(p.itens),id,token),
-    c.env.DB.prepare(`INSERT INTO obra_planilha_snapshots(id,planilha_id,versao,finalidade,dados,criada_por) SELECT ?,id,versao,'salvamento',?,? FROM obra_planilhas WHERE id=? AND operacao=?`).bind(crypto.randomUUID(),JSON.stringify(p),c.get('user')!.id,id,token),
+    c.env.DB.prepare(`INSERT INTO obra_planilha_snapshots(id,planilha_id,versao,finalidade,dados,criada_por) SELECT ?,id,versao,'salvamento',?,? FROM obra_planilhas WHERE id=? AND operacao=?`).bind(crypto.randomUUID(),JSON.stringify({...p,orcamento:calcularOrcamento(p.itens)}),c.get('user')!.id,id,token),
   ];
 }
 routes.get('/biblioteca-planilhas',async c=>{
@@ -116,11 +134,11 @@ routes.put('/:id/planilhas/:planilha',async c=>{
 });
 routes.post('/:id/planilhas/:planilha/snapshots',async c=>{
   const p=await ler(c,Number(c.req.param('planilha')));if(!p)return c.json({error:'Planilha não encontrada.'},404);
-  const body=z.object({versao:z.number().int(),itens:z.array(z.string().uuid()).min(1).max(2000),finalidade:z.enum(['quantitativo_xlsx','solicitacao'])}).strict().safeParse(await c.req.json().catch(()=>null));
+  const body=z.object({versao:z.number().int(),itens:z.array(z.string().uuid()).min(1).max(2000),finalidade:z.enum(['quantitativo_xlsx','orcamento_xlsx','solicitacao'])}).strict().safeParse(await c.req.json().catch(()=>null));
   if(!body.success)return c.json({error:'Seleção inválida.'},400);
   if(body.data.versao!==p.versao)return c.json({error:'Versão mudou. Salve e gere novamente.'},409);
   const ids=new Set(body.data.itens);if(ids.size!==body.data.itens.length||p.itens.filter(i=>ids.has(i.id)).length!==ids.size)return c.json({error:'Item fora da planilha ou duplicado.'},400);
-  const snapshot={...p,itens:p.itens.filter(i=>ids.has(i.id))},id=crypto.randomUUID();
+  const itens=p.itens.filter(i=>ids.has(i.id));const snapshot={...p,itens,orcamento:calcularOrcamento(itens)},id=crypto.randomUUID();
   const res=await c.env.DB.prepare('INSERT INTO obra_planilha_snapshots(id,planilha_id,versao,finalidade,dados,criada_por) SELECT ?,id,versao,?,?,? FROM obra_planilhas WHERE id=? AND versao=?').bind(id,body.data.finalidade,JSON.stringify(snapshot),c.get('user')!.id,p.id,body.data.versao).run();
   if(!res.meta.changes)return c.json({error:'Versão mudou. Salve e gere novamente.'},409);return c.json({id,snapshot},201);
 });

@@ -27,7 +27,7 @@ export const buscaItem=(i:BaseItem)=>normalizarBusca([i.codigo,i.descricao,i.cat
 export function dividirLotes(itens:BaseItem[]){const lotes:BaseItem[][]=[];let atual:BaseItem[]=[],bytes=20;for(const i of itens){const tamanho=new TextEncoder().encode(JSON.stringify(i)).length+1;if(tamanho>700000)throw Error('Item excede o limite de lote.');if(atual.length&&(atual.length>=200||bytes+tamanho>700000)){lotes.push(atual);atual=[];bytes=20;}atual.push(i);bytes+=tamanho;}if(atual.length)lotes.push(atual);return lotes;}
 export function itemDoCatalogo(r:ResultadoCatalogo,grupo:string):ItemPlanilha{
   const i=novoItem(r.grupo||grupo);
-  return {...i,biblioteca_id:r.fonte==='biblioteca'?r.id:null,servico:r.descricao.slice(0,300),descricao:r.fonte==='base'?r.descricao:'',escopo:r.escopo,unidade:r.unidade,categoria:r.categoria,subcategoria:r.subcategoria,observacoes:r.observacoes,fonte:r.base_nome,referencia_origem:{...(r.sicro?{sicro:r.sicro,custo_sicro_escolhido:r.sicro.subtipo==='equipamento'?null:(r.sicro.custos.filter(c=>c.selecionavel).length===1?chaveCustoSicro(r.sicro.custos.find(c=>c.selecionavel)!):null)}:{}),fonte:r.fonte,base_id:r.base_id,item_id:r.id,codigo:r.codigo,descricao:r.descricao,unidade:r.unidade,competencia:r.competencia,uf:r.uf,versao:r.versao,origem:r.origem,preco_centavos:r.preco_centavos,tipo:r.tipo,classificacao:r.classificacao,base_nome:r.base_nome,regime:r.regime??'',data_referencia:r.data_referencia??'',...((r.tipo_base==='SINAPI'&&r.preco_centavos===null)||r.preco_nao_desonerado_centavos!=null||r.preco_desonerado_centavos!=null?{preco_nao_desonerado_centavos:r.preco_nao_desonerado_centavos??null,preco_desonerado_centavos:r.preco_desonerado_centavos??null,regime_escolhido:null,preco_referencia_centavos:null}:{}),...(r.metadados?{metadados:r.metadados}:{}),...(r.fonte==='base'?{tipo_base:r.tipo_base as typeof TIPOS_BASE[number]}:{})}};
+  return {...i,biblioteca_id:r.fonte==='biblioteca'?r.id:null,servico:r.descricao,descricao:r.fonte==='base'?r.descricao:'',escopo:r.escopo,unidade:r.unidade,categoria:r.categoria,subcategoria:r.subcategoria,observacoes:r.observacoes,fonte:r.base_nome,referencia_origem:{...(r.sicro?{sicro:r.sicro,custo_sicro_escolhido:r.sicro.subtipo==='equipamento'?null:(r.sicro.custos.filter(c=>c.selecionavel).length===1?chaveCustoSicro(r.sicro.custos.find(c=>c.selecionavel)!):null)}:{}),fonte:r.fonte,base_id:r.base_id,item_id:r.id,codigo:r.codigo,descricao:r.descricao,unidade:r.unidade,competencia:r.competencia,uf:r.uf,versao:r.versao,origem:r.origem,preco_centavos:r.preco_centavos,tipo:r.tipo,classificacao:r.classificacao,base_nome:r.base_nome,regime:r.regime??'',data_referencia:r.data_referencia??'',...((r.tipo_base==='SINAPI'&&r.preco_centavos===null)||r.preco_nao_desonerado_centavos!=null||r.preco_desonerado_centavos!=null?{preco_nao_desonerado_centavos:r.preco_nao_desonerado_centavos??null,preco_desonerado_centavos:r.preco_desonerado_centavos??null,regime_escolhido:null,preco_referencia_centavos:null}:{}),...(r.metadados?{metadados:r.metadados}:{}),...(r.fonte==='base'?{tipo_base:r.tipo_base as typeof TIPOS_BASE[number]}:{})}};
 }
 export function substituirReferenciaSbc(item:ItemPlanilha,r:ResultadoCatalogo):ItemPlanilha{
  if(item.referencia_origem?.tipo_base!=='SBC'||r.tipo_base!=='SBC')throw Error('Reseleção disponível somente entre referências SBC.');
@@ -48,4 +48,13 @@ export function precoImportado(v:string|number,formato:'br'|'decimal'):number|nu
   const valido=formato==='br'?/^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?$/:/^\d+(?:\.\d{1,2})?$/;
   if(!valido.test(s))throw Error('Preço incompatível com o formato numérico selecionado');
   const n=Number(formato==='br'?s.replace(/\./g,'').replace(',','.'):s);if(n>1e9)throw Error('Preço fora do limite');return Math.round(n*100);
+}
+
+/** The worksheet indicator is derived from existing item snapshots, never stored in an unrelated field. */
+export function regimeSinapiDosItens(itens:ItemPlanilha[]):RegimeReferencia|null{
+ const regimes=new Set(itens.filter(i=>i.referencia_origem?.tipo_base==='SINAPI').map(i=>i.referencia_origem?.regime_escolhido??null));
+ return regimes.size===1?[...regimes][0]:null;
+}
+export function aplicarRegimeSinapi(itens:ItemPlanilha[],regime:RegimeReferencia):ItemPlanilha[]{
+ return itens.map(i=>i.referencia_origem?.tipo_base==='SINAPI'?selecionarRegime(i,regime):i);
 }

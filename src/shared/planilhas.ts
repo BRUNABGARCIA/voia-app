@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { referenciaSicroSchema } from './sicro';
+import {calcularOrcamento,percentualValido,resumirOrcamento} from './orcamento';
 
 export const STATUS_LEVANTAMENTO = {
   FECHADO: 'Fechado', QPE: 'Quantificado — pendente de especificação',
@@ -16,13 +17,17 @@ export const referenciaOrigemSchema=z.object({sicro:referenciaSicroSchema.option
 export const grupoSchema = z.object({ codigo: z.string().regex(/^\d{2}$/), nome: texto(150).min(1) }).strict();
 export const itemPlanilhaSchema = z.object({
   id: z.string().uuid(), codigo: z.string().regex(/^\d{2}\.\d{2,6}$/).or(z.literal('')), grupo: z.string().regex(/^\d{2}$/),
-  biblioteca_id: z.number().int().positive().nullable(), servico: texto(300), categoria: texto(150), subcategoria: texto(150),
+  biblioteca_id: z.number().int().positive().nullable(), servico: texto(5000), categoria: texto(150), subcategoria: texto(150),
   descricao: texto(5000), escopo: texto(8000), pavimento: texto(150), ambiente: texto(150), unidade: texto(30),
   quantidade: z.number().finite().min(0).max(1e9).nullable(), memoria: texto(8000), fonte: texto(), observacoes: texto(8000),
   pendencias: texto(5000), status: z.enum(['FECHADO','QPE','CPQ','CPP','PC','VT','NC']).nullable(),
   valor_unit_centavos: z.number().int().min(0).max(1e11).nullable(), fornecedor: texto(200),
   referencia_preco: z.object({ origem: texto(150), codigo: texto(100), competencia: texto(50), uf: texto(50), tipo: texto(100), referencia: texto(1000) }).nullable(),
   referencia_origem:referenciaOrigemSchema.nullable().optional(),
+  bdi_percentual:z.number().finite().nullable().optional().refine(v=>percentualValido(v,1000),"BDI inválido (0–1000%, até 2 casas)."),
+  desconto_percentual:z.number().finite().nullable().optional().refine(v=>percentualValido(v,100),"Desconto inválido (0–100%, até 2 casas)."),
+  preco_adotado_origem:z.enum(["manual","referencia"]).nullable().optional(),
+  preco_adotado_referencia:referenciaOrigemSchema.nullable().optional(),
 }).strict();
 export const planilhaConteudoSchema = z.object({
   nome: texto(200).min(1), descricao: texto(), tipo: z.enum(['livre','reforma']),
@@ -36,11 +41,12 @@ export const planilhaConteudoSchema = z.object({
     ids.add(i.id);if(i.codigo)codigos.add(i.codigo);
     if(i.quantidade!==null&&i.valor_unit_centavos!==null&&i.quantidade*i.valor_unit_centavos>Number.MAX_SAFE_INTEGER)c.addIssue({code:'custom',message:'Total fora do limite numérico'});
   }
+  try{resumirOrcamento(v.itens);}catch(e){c.addIssue({code:'custom',message:(e as Error).message});}
 });
 export type ItemPlanilha=z.infer<typeof itemPlanilhaSchema>;
 export type GrupoPlanilha=z.infer<typeof grupoSchema>;
 export type ConteudoPlanilha=z.infer<typeof planilhaConteudoSchema>;
-export type Planilha=ConteudoPlanilha&{id:number;obra_id:number;versao:number;criada_em:string;atualizada_em:string};
+export type Planilha=ConteudoPlanilha&{id:number;obra_id:number;versao:number;criada_em:string;atualizada_em:string;orcamento?:ReturnType<typeof calcularOrcamento>};
 export type ServicoBiblioteca={id:number;codigo:string;nome:string;grupo:string;categoria:string;subcategoria:string;unidade:string;descricao:string;escopo:string;tags:string;observacoes:string;origem:string;ativo:number};
 export function novoItem(grupo='01',servico?:ServicoBiblioteca):ItemPlanilha{
   return {id:crypto.randomUUID(),codigo:'',grupo:servico?.grupo??grupo,biblioteca_id:servico?.id??null,servico:servico?.nome??'',categoria:servico?.categoria??'',subcategoria:servico?.subcategoria??'',descricao:servico?.descricao??'',escopo:servico?.escopo??'',pavimento:'',ambiente:'',unidade:servico?.unidade??'',quantidade:null,memoria:'',fonte:servico?.origem??'',observacoes:servico?.observacoes??'',pendencias:'',status:null,valor_unit_centavos:null,fornecedor:'',referencia_preco:null};
@@ -55,4 +61,10 @@ export function numeroCelula(s:string):number|null{
   if(!/^(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d+)?$/.test(limpo)&&!/^\d+(?:\.\d+)?$/.test(limpo))throw new Error('Informe um número válido, sem fórmulas.');
   const n=Number(limpo.includes(',')?limpo.replace(/\./g,'').replace(',','.'):limpo);
   if(!Number.isFinite(n)||n<0||n>1e9)throw new Error('Número fora do limite permitido.');return n;
+}
+
+/** Restore only the exact legacy 300-character catalog prefix; manual edits remain authoritative. */
+export function servicoCompleto(i:ItemPlanilha):string{
+ const descricao=i.referencia_origem?.descricao;
+ return descricao&&descricao.length>300&&i.servico.length===300&&i.servico===descricao.slice(0,300)?descricao:i.servico;
 }
