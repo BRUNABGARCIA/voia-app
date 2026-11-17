@@ -1,4 +1,5 @@
 import {calcularOrcamento,precoReferenciaCentavos} from '../../shared/orcamento';
+import {registrarSolicitacoes} from './solicitacoes-proposta';
 import {buscarCatalogo} from '../bases/routes';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -146,4 +147,5 @@ routes.get('/:id/planilhas/:planilha/snapshots/:snapshot',async c=>{
   const p=await ler(c,Number(c.req.param('planilha')));if(!p)return c.json({error:'Planilha não encontrada.'},404);
   const row=await c.env.DB.prepare('SELECT id,versao,finalidade,dados,criada_em FROM obra_planilha_snapshots WHERE id=? AND planilha_id=?').bind(c.req.param('snapshot'),p.id).first<{dados:string}>();return row?c.json({...row,snapshot:JSON.parse(row.dados),dados:undefined}):c.json({error:'Snapshot não encontrado.'},404);
 });
+registrarSolicitacoes(routes,ler);
 export default routes;

@@ -16,6 +16,31 @@ function mock(p=fixture(),falhar=false){let atual=p;const fetch=vi.fn(async(url:
   return Response.json(url.endsWith('/10')?{planilha:atual}:{planilhas:[{id:10,nome:p.nome,tipo:p.tipo,versao:1,status:'rascunho',itens_total:p.itens.length}]});
 });vi.stubGlobal('fetch',fetch);return fetch;}
 async function abrir(){render(<ObraPlanilhasPanel obraId={1} podeBiblioteca/>);await userEvent.setup().click(await screen.findByRole('button',{name:'Quantitativo de teste'}));await screen.findByRole('table',{name:'Itens do quantitativo'});}
+it.each([
+  [null, 'Não definido'],
+  [true, 'Mão de obra'],
+  [false, 'Outros'],
+] as const)('Contratação apresenta o valor salvo %s como %s sem iniciar edição', async (valor, rotulo) => {
+  const fetch = mock({...fixture(), somente_mao_de_obra: valor});
+  await abrir();
+  const seletor = screen.getByLabelText<HTMLSelectElement>('Contratação');
+  expect(seletor.selectedOptions[0].textContent).toBe(rotulo);
+  expect(Array.from(seletor.options, option => option.textContent)).toEqual(['Não definido', 'Mão de obra', 'Outros']);
+  expect(screen.getByLabelText('Regime SINAPI')).toHaveProperty('value', '');
+  expect(fetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+});
+it('Contratação mantém o contrato booleano e pode voltar a não definida', async () => {
+  const fetch = mock();
+  await abrir();
+  const u = userEvent.setup();
+  for (const [opcao, valor] of [['Mão de obra', true], ['Outros', false], ['Não definido', null]] as const) {
+    await u.selectOptions(screen.getByLabelText('Contratação'), screen.getByRole('option', {name: opcao}));
+    await u.click(screen.getByRole('button', {name: 'Salvar alterações'}));
+    await screen.findByText('Alterações salvas.');
+    const puts = fetch.mock.calls.filter(([, init]) => init?.method === 'PUT');
+    expect(JSON.parse(puts[puts.length - 1][1]!.body as string).conteudo.somente_mao_de_obra).toBe(valor);
+  }
+});
 it('obra sem planilha mostra estado vazio sem criar automaticamente',async()=>{const fetch=vi.fn(async()=>Response.json({planilhas:[]}));vi.stubGlobal('fetch',fetch);render(<ObraPlanilhasPanel obraId={1}/>);await screen.findByText('Nenhuma planilha criada');expect(fetch.mock.calls).toHaveLength(1);expect(screen.getByRole('button',{name:'+ Nova planilha'})).toBeTruthy();});
 it('modelo só cria grupos selecionados após confirmação explícita',async()=>{const fetch=mock();render(<ObraPlanilhasPanel obraId={1}/>);const u=userEvent.setup();await u.click(screen.getByRole('button',{name:'+ Nova planilha'}));fireEvent.change(screen.getByLabelText('Nome'),{target:{value:'Reforma'}});await u.click(screen.getByLabelText('01 Pintura'));expect(fetch.mock.calls.filter(([,i])=>i?.method==='POST')).toHaveLength(0);await u.click(screen.getByRole('button',{name:'Criar planilha'}));await screen.findByRole('table',{name:'Itens do quantitativo'});const post=fetch.mock.calls.find(([,i])=>i?.method==='POST')!;expect(JSON.parse(post[1]!.body as string)).toMatchObject({grupos:[{codigo:'01',nome:'Pintura'}],itens:[],somente_mao_de_obra:null});});
 it('edição inline fica local e salva em lote somente ao clicar Salvar',async()=>{const fetch=mock();await abrir();const celula=screen.getByLabelText('Qtd. linha 1');fireEvent.change(celula,{target:{value:'115,09'}});fireEvent.blur(celula);expect(fetch.mock.calls.filter(([,i])=>i?.method==='PUT')).toHaveLength(0);expect(screen.getByText('Alterações não salvas')).toBeTruthy();await userEvent.setup().click(screen.getByRole('button',{name:'Salvar alterações'}));await screen.findByText('Alterações salvas.');const put=fetch.mock.calls.find(([,i])=>i?.method==='PUT')!;expect(JSON.parse(put[1]!.body as string).conteudo.itens[0].quantidade).toBe(115.09);expect(sessionStorage.length).toBe(0);});
